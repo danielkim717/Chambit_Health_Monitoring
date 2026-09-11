@@ -1,0 +1,32 @@
+{
+  "efficientphys.py": {
+    "url": "https://raw.githubusercontent.com/ubicomplab/rPPG-Toolbox/b7500b848f84ad7f86e277b4612563b69f4f88f9/neural_methods/model/EfficientPhys.py",
+    "sha256": "384b01b5c99d6d280b5ddb9e2358631f89747e40e3181b6a174e26d6e74798c9",
+    "bytes": 5134
+  },
+  "PURE_EfficientPhys.pth": {
+    "url": "https://raw.githubusercontent.com/ubicomplab/rPPG-Toolbox/b7500b848f84ad7f86e277b4612563b69f4f88f9/final_model_release/PURE_EfficientPhys.pth",
+    "sha256": "e65a962e07bcac32a668e6acb9f8ed43cdb1b01cfb97262654dc5b55c0cf3a49",
+    "bytes": 8659174
+  },
+  "rppg-toolbox-LICENSE": {
+    "url": "https://raw.githubusercontent.com/ubicomplab/rPPG-Toolbox/b7500b848f84ad7f86e277b4612563b69f4f88f9/LICENSE",
+    "sha256": "a2d16c386a18fc6c88ce0ff9d4593082f74a041c96e92ca9e2d89731955f1e1c",
+    "bytes": 8886
+  },
+  "mtts_model.py": {
+    "url": "https://raw.githubusercontent.com/xliucs/MTTS-CAN/89ffe818e1701ebcc156d4193657258e506eb781/code/model.py",
+    "sha256": "2b0ef8730150acc4afd0a322ac81c0b67febbd07c6a5342ab6700790761293d8",
+    "bytes": 17106
+  },
+  "mtts_can.hdf5": {
+    "url": "https://raw.githubusercontent.com/xliucs/MTTS-CAN/89ffe818e1701ebcc156d4193657258e506eb781/mtts_can.hdf5",
+    "sha256": "74d53d039bb7adc08309a1b389537a0c79fddc479b064dd660ef7007fb47d022",
+    "bytes": 11364688
+  },
+  "mtts-can-LICENSE": {
+    "url": "https://raw.githubusercontent.com/xliucs/MTTS-CAN/89ffe818e1701ebcc156d4193657258e506eb781/LICENSE",
+    "sha256": "a7f349071786080b00e0f9145dac580b086a64df18654f0901f37e9d14d9f65b",
+    "bytes": 1064
+  }
+}

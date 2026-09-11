@@ -1,0 +1,17 @@
+# Local secrets and generated files
+chambit_health_demo/.env
+chambit_health_demo/node_modules/
+chambit_health_demo/test-results/
+chambit_health_demo/playwright-report/
+chambit_health_demo/.server-*.log
+
+# Reference checkout is kept locally and is not part of the demo release.
+resPyre/
+.venv/
+__pycache__/
+.pytest_cache/
+inference/weights/
+inference/artifacts/
+*.log
+.env
+.publish/

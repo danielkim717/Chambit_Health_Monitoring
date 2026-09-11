@@ -1,0 +1,16 @@
+{
+  "name": "chambit-health-demo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node --env-file-if-exists=.env dev.mjs",
+    "start:web": "node --env-file-if-exists=.env server.js",
+    "setup:assets": "node setup-assets.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@mediapipe/tasks-vision": "0.10.32",
+    "@playwright/test": "1.58.2"
+  }
+}
