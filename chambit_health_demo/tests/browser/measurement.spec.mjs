@@ -46,9 +46,13 @@ test('65 second demo, questionnaire, result and restart use explicit virtual dat
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install();await page.goto('/');await page.locator('#startHero').click();await page.locator('#modeSelect').selectOption('demo');
   await page.locator('#measureBtn').click();await page.clock.runFor(4900);await expect(page.locator('#measureStatus')).toHaveText('준비');
-  await expect(page.locator('#hrValue')).toHaveText('--');await page.clock.runFor(30300);
-  await expect(page.locator('#hrValue')).toHaveText('72');await expect(page.locator('#rrValue')).toHaveText('15');
-  await expect(page.locator('#continueBtn')).toBeHidden();await page.clock.runFor(30500);
+  await expect(page.locator('#hrValue')).toHaveText('--');await page.clock.runFor(20300);
+  await expect(page.locator('#hrValue')).toHaveText('72');await expect(page.locator('#rrValue')).toHaveText('--');
+  await expect(page.locator('#timelineHr')).toHaveClass(/is-reached/);
+  await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
+  await page.clock.runFor(15000);await expect(page.locator('#rrValue')).toHaveText('15');
+  await expect(page.locator('#timelineRr')).toHaveClass(/is-reached/);
+  await expect(page.locator('#continueBtn')).toBeHidden();await page.clock.runFor(25500);
   await expect(page.locator('#measureStatus')).toHaveText('측정 완료');await expect(page.locator('#timer')).toHaveText('01:00 / 01:00');
   await page.locator('#continueBtn').click();await expect(page.locator('#questionMode')).toContainText('가상 데이터');
   for(let i=0;i<4;i++)await page.locator('.answer-btn').first().click();
@@ -76,7 +80,11 @@ test('partial real result keeps respiration unavailable through questionnaire',a
       if(JSON.parse(raw).type!=='start')return;
       socket.send(JSON.stringify({type:'started',sessionId:'test-session',revision:0}));
       setTimeout(()=>socket.send(JSON.stringify({type:'analysis',sessionId:'test-session',revision:0,final:true,
-        result:{resultId:'b'.repeat(32),mode:'real',hr:78,rr:null,hrReason:'',rrReason:'호흡 변동 신호가 부족합니다.',durationMs:60000,fps:29.5,wave:[],quality:'partial'}})),50);
+        result:{resultId:'b'.repeat(32),mode:'real',hr:78,rr:null,hrReason:'',
+          rrReason:'카메라 영상이 충분히 부드럽게 전달되지 않아 호흡수를 측정하지 못했습니다. 다른 카메라 앱이나 무거운 작업을 닫고 다시 측정해 주세요.',
+          durationMs:60000,fps:20,wave:[],quality:'partial',
+          metrics:{hr:{sources:['chrom'],status:'valid'},rr:{sources:[],status:'insufficient',reasonCode:'low_fps'}},
+          errors:[{model:'mtts_can',code:'low_fps',fps:20,requiredFps:24}]}})),50);
     });
   });
   await page.addInitScript(()=>{
@@ -89,10 +97,66 @@ test('partial real result keeps respiration unavailable through questionnaire',a
   });
   await page.goto('/');await page.locator('#startHero').click();await page.locator('#cameraBtn').click();await page.locator('#measureBtn').click();
   await expect(page.locator('#measureStatus')).toHaveText('부분 측정 완료');await expect(page.locator('#rrState')).toHaveText('측정 불가');
+  await expect(page.locator('#rrDetails')).toContainText('카메라 영상이 충분히 부드럽게');
+  await expect(page.locator('#rrDetails')).not.toContainText('mtts_can');
+  await expect(page.locator('#inferenceDiagnostics')).not.toBeVisible();
+  expect(await page.locator('#measure').innerText()).not.toContain('mtts_can');
+  await page.locator('.measurement-diagnostics summary').click();
+  await expect(page.locator('#inferenceDiagnostics')).toContainText('mtts_can');
   await page.locator('#continueBtn').click();await expect(page.locator('#questionHr')).toHaveText('78');await expect(page.locator('#questionRr')).toHaveText('측정 불가');
   await expect(page.locator('#questionText')).toContainText('불편한 증상');
-  await expect(page.locator('#finalRr')).toHaveText('측정 불가');await expect(page.locator('#finalRrState')).toContainText('호흡 변동');
+  await expect(page.locator('#finalRr')).toHaveText('측정 불가');await expect(page.locator('#finalRrState')).toContainText('부드럽게 전달되지 않아');
 });
+test('timeline marks 20-second heart and 35-second respiration starts',async({page})=>{
+  let connection;
+  const send=(type,extra)=>connection.send(JSON.stringify({type,sessionId:'rr-test',revision:0,...extra}));
+  const measurement=(rr,hr=72)=>({mode:'real',hr,rr,hrReason:'',rrReason:'호흡수는 35초부터 분석합니다.',
+    durationMs:rr===null?20000:36000,fps:30,wave:[],respWave:[],
+    metrics:{hr:{sources:[],status:hr===null?'insufficient':'valid'},
+      rr:{sources:rr===null?[]:['mtts_can'],status:rr===null?'collecting':'valid'}}});
+  await page.routeWebSocket('**/api/measurement',socket=>{
+    connection=socket;socket.send(JSON.stringify({type:'connected'}));
+    socket.onMessage(raw=>{
+      if(typeof raw!=='string' || JSON.parse(raw).type!=='start')return;
+      send('started',{});
+      send('analysis',{result:measurement(null),final:false});
+    });
+  });
+  await page.addInitScript(()=>{
+    navigator.mediaDevices.getUserMedia=async()=>{
+      const canvas=document.createElement('canvas');canvas.width=320;canvas.height=240;
+      const context=canvas.getContext('2d'),stream=canvas.captureStream(30);
+      setInterval(()=>{context.fillStyle='#888';context.fillRect(0,0,320,240);},33);
+      return stream;
+    };
+    window.Worker=class {
+      postMessage(message){if(message.type==='init')setTimeout(()=>this.onmessage?.({data:{type:'ready'}}),0);}
+      terminate(){}
+    };
+  });
+  await page.goto('/');await page.locator('#startHero').click();await page.locator('#cameraBtn').click();
+  await page.locator('#measureBtn').click();
+  await expect(page.locator('#hrValue')).toHaveText('72');
+  await expect(page.locator('#rrState')).toHaveText('호흡 신호 수집 중');
+  await expect(page.locator('#rrDetails')).toContainText('35초부터');
+  await expect(page.locator('#timelineHr')).toHaveClass(/is-reached/);
+  await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
+  await expect(page.locator('#timelineTrack')).toHaveAttribute('aria-valuenow','20');
+  send('state',{state:{phase:'collecting',revision:0,preparedMs:5000,collectedMs:35000,
+    elapsedMs:40000,fps:30,droppedFrames:0,reason:'호흡 분석'}});
+  await expect(page.locator('#rrState')).toHaveText('호흡 분석 중');
+  await expect(page.locator('#timelineRr')).toHaveClass(/is-reached/);
+  send('analysis',{result:measurement(16,null),final:false});
+  await expect(page.locator('#rrValue')).toHaveText('16');
+  await expect(page.locator('#hrValue')).toHaveText('--');
+  send('analysis',{result:{...measurement(16,null),durationMs:60000,resultId:'c'.repeat(32)},final:true});
+  await expect(page.locator('#rrState')).toHaveText('호흡수 추정값');
+  await expect(page.locator('#finalRr')).toHaveText('16');
+  await expect(page.locator('#timelineEnd')).toHaveClass(/is-reached/);
+  await page.locator('#measureBtn').click();
+  await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
+});
+
 test('measurement controls fit desktop and narrow screens',async({page},testInfo)=>{
   await page.goto('/');await page.locator('#startHero').click();
   await page.screenshot({path:testInfo.outputPath('measurement-desktop.png'),fullPage:true});

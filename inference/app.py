@@ -15,7 +15,7 @@ import numpy as np
 
 from .consultation import Interview
 from .models import load_models
-from .pipeline import Measurement, Pipeline
+from .pipeline import Measurement, Pipeline, HR_PREVIEW_MS
 
 class ExpiringStore:
     def __init__(self, ttl=1800, limit=100):
@@ -168,7 +168,7 @@ def create_app(models=None, pipeline_factory=Pipeline):
             while job is not None and alive:
                 try:
                     result = await asyncio.to_thread(pipeline.run, job)
-                    if alive and session and job['revision'] == session.revision and session.phase != 'timeout' and result['durationMs'] >= 30000:
+                    if alive and session and job['revision'] == session.revision and session.phase != 'timeout' and result['durationMs'] >= HR_PREVIEW_MS:
                         if job['final']:
                             result['resultId'] = uuid.uuid4().hex
                             results.put(result['resultId'], result)

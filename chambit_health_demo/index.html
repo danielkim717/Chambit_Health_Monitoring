@@ -101,8 +101,21 @@
           <select id="modeSelect"><option value="real">실제 웹캠 측정</option><option value="demo">가상 데이터 데모</option></select>
           <strong class="mode-badge" id="measurementMode">실제 웹캠 추정</strong>
         </div>
+        <div class="measurement-timeline" aria-label="측정 진행과 분석 시작 시점">
+          <div class="timeline-heading"><strong>차근차근 알아보는 내 몸의 리듬</strong><span id="timelineClock">0 / 60초</span></div>
+          <p id="timelineMessage">카메라를 켜고 측정을 시작해 주세요.</p>
+          <div class="timeline-route">
+            <div id="timelineTrack" class="timeline-track" role="progressbar" aria-label="영상 수집 진행" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0"><div id="progressBar"></div></div>
+            <ol class="timeline-milestones">
+              <li id="timelineStart" class="milestone-start"><i aria-hidden="true">●</i><b>수집 시작</b><span>0초</span></li>
+              <li id="timelineHr" class="milestone-hr"><i aria-hidden="true">♥</i><b>심박 분석</b><span>20초부터</span></li>
+              <li id="timelineRr" class="milestone-rr"><i aria-hidden="true">≈</i><b>호흡 분석</b><span>35초부터</span></li>
+              <li id="timelineEnd" class="milestone-end"><i aria-hidden="true">✓</i><b>수집 완료</b><span>60초</span></li>
+            </ol>
+          </div>
+          <div class="timeline-caption"><span>준비 5초 후 시작 · 신호가 충분하면 중간값이 나타나요</span><b id="progressText">0%</b></div>
+        </div>
         <p id="measurementGuide" class="measurement-guide" role="status">고른 조명에서 얼굴을 정면으로 맞추세요. 준비 5초 후 60초 동안 자연스럽게 호흡하세요.</p>
-        <p id="serverStatus" role="status">실제 측정 시작 시 로컬 추론 서버 상태를 확인합니다.</p>
         <div class="measure-layout">
           <div class="camera-card">
             <div class="camera-frame" id="cameraFrame">
@@ -128,27 +141,26 @@
               <span>심박수 추정</span>
               <div><strong id="hrValue">--</strong> <small>bpm</small></div>
               <em id="hrState">측정 전</em>
+              <p id="hrDetails"></p>
             </div>
             <div class="metric-card">
               <span>호흡수 추정</span>
               <div><strong id="rrValue">--</strong> <small>회/분</small></div>
               <em id="rrState">측정 전</em>
+              <p id="rrDetails" aria-live="polite"></p>
             </div>
             <div class="signal-card">
               <div class="card-head"><strong>맥파 신호</strong><span id="timer">00:00 / 01:00</span></div>
               <canvas id="waveCanvas" width="760" height="220"></canvas>
-              <div class="card-head"><strong>호흡 파형</strong><span>45초부터 분석</span></div>
+              <div class="card-head"><strong>호흡 파형</strong><span>35초부터 분석</span></div>
               <canvas id="respWaveCanvas" width="760" height="130"></canvas>
             </div>
             <p id="prepareTimer">준비 00:00 / 00:05</p>
-            <p id="captureMeta">수신 대기</p>
-            <p id="qualityDetails">심박수는 30초, 호흡수는 45초부터 신호가 충분할 때 표시합니다.</p>
-            <p id="modelEvidence"></p>
-            <details><summary>측정 근거와 처리 상태</summary><pre id="inferenceDiagnostics"></pre></details>
-            <div class="progress-wrap">
-              <div class="progress-label"><span>분석 진행률</span><b id="progressText">0%</b></div>
-              <div class="progress"><div id="progressBar"></div></div>
-            </div>
+            <p id="qualityDetails">심박수는 20초, 호흡수는 35초부터 신호가 충분할 때 표시합니다.</p>
+            <details class="measurement-diagnostics"><summary>측정 상세 정보 · 개발용</summary>
+              <p id="serverStatus">측정 시작 시 분석 기능의 준비 상태를 확인합니다.</p>
+              <p id="captureMeta">수신 대기</p><p id="modelEvidence"></p><pre id="inferenceDiagnostics"></pre>
+            </details>
           </div>
         </div>
       </section>

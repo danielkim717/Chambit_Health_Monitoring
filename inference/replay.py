@@ -9,7 +9,7 @@ from pathlib import Path
 import time
 import cv2
 from .models import load_models
-from .pipeline import Measurement, Pipeline
+from .pipeline import Measurement, Pipeline, HR_PREVIEW_MS
 
 def main():
     parser=argparse.ArgumentParser()
@@ -37,7 +37,7 @@ def main():
         job=session.job(final=session.phase=='complete')
         if job:
             result=pipeline.run(job)
-            if result['durationMs']>=30000:
+            if result['durationMs']>=HR_PREVIEW_MS:
                 results.append(result)
                 print(json.dumps({k:result[k] for k in ['durationMs','hr','rr','quality','timing']},ensure_ascii=False),flush=True)
         if session.phase in ('complete','timeout'):break

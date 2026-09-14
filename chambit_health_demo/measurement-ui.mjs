@@ -1,12 +1,41 @@
 import { CONFIG } from './measurement-config.mjs';
 import { MeasurementController } from './measurement-controller.mjs';
+import { measurementTimeline } from './measurement-timeline.mjs';
+
+export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
+  if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:''};
+  if(final)return {state:'측정 불가',reason:result?.rrReason || '호흡 신호가 부족합니다.'};
+  if(mode==='demo')return {state:'신호 수집 중',reason:'가상 데이터'};
+  if(collectedMs < CONFIG.respirationPreviewMs)return {
+    state:'호흡 신호 수집 중',
+    reason:`수집 ${CONFIG.respirationPreviewMs/1000}초부터 호흡을 분석합니다. 위 진행 막대에서 시작 시점을 확인하세요.`
+  };
+  if(!result || result.metrics?.rr?.status==='collecting')return {
+    state:'호흡 분석 중',reason:'모은 영상에서 호흡 신호를 분석하고 있습니다. 잠시만 기다려 주세요.'
+  };
+  return {state:result.metrics?.rr?.status==='conflict'?'호흡 결과 확인 중':'호흡 신호 부족',
+    reason:result.rrReason || '호흡 파형의 품질을 확인하고 있습니다.'};
+}
 
 export function mountMeasurement({onReset,onContinue}) {
   const el=id=>document.getElementById(id), video=el('video');
-  let mode='real',result=null;
+  let mode='real',result=null,lastAnalysis=null,lastState={};
   const wave=el('waveCanvas'),ctx=wave.getContext('2d'),overlay=el('roiCanvas');
   const clock=ms=>`${String(Math.floor(ms/60000)).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}`;
   const label=()=>mode==='demo'?'가상 데이터 · 데모':'실제 웹캠 추정';
+  function drawTimeline(state={},final=false) {
+    lastState=state;
+    const timeline=measurementTimeline(state,final);
+    el('timelineMessage').textContent=timeline.message;
+    el('timelineClock').textContent=`${timeline.seconds} / ${CONFIG.collectMs/1000}초`;
+    el('timelineTrack').setAttribute('aria-valuenow',String(timeline.seconds));
+    el('timelineTrack').setAttribute('aria-valuetext',`${timeline.seconds}초 수집. ${timeline.message}`);
+    el('progressBar').style.width=timeline.percent+'%';
+    el('progressText').textContent=Math.floor(timeline.percent)+'%';
+    for(const [id,reached] of [['timelineStart',timeline.started],['timelineHr',timeline.hrReached],['timelineRr',timeline.rrReached],['timelineEnd',timeline.complete]]) {
+      el(id).classList.toggle('is-reached',reached);
+    }
+  }
   function drawWave(values=[]) {
     ctx.clearRect(0,0,wave.width,wave.height);ctx.strokeStyle='#e7edf5';ctx.lineWidth=1;
     for(let y=25;y<wave.height;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(wave.width,y);ctx.stroke();}
@@ -24,12 +53,14 @@ export function mountMeasurement({onReset,onContinue}) {
     for(const points of polygons){c.beginPath();points.forEach((p,i)=>{const x=overlay.width-(dx+p.x*w),y=dy+p.y*h;if(i)c.lineTo(x,y);else c.moveTo(x,y);});c.closePath();c.fill();c.stroke();}
   }
   function showValues(r,final=false) {
+    lastAnalysis=r;
     const val=x=>x==null?'--':String(Math.round(x));
     el('hrValue').textContent=val(r.hr);el('rrValue').textContent=val(r.rr);
     el('hrState').textContent=r.hr===null?(final?'측정 불가':'신호 수집 중'):(mode==='demo'?'가상 데이터':final?'심박수 추정값':'중간 추정값');
-    el('rrState').textContent=r.rr===null?(final?'측정 불가':'신호 수집 중'):(mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값');
-    el('qualityDetails').textContent=[r.hr===null?r.hrReason:'',r.rr===null?r.rrReason:'',
-      r.delayed?'결과 지연 · 처리 속도를 확인하세요.':''].filter(Boolean).join(' / ') || '신호 품질을 확인한 추정값입니다.';
+    showRespirationState(r,final,r.durationMs || 0);
+    el('hrDetails').textContent=r.hr===null?(r.hrReason || ''):'';
+    el('qualityDetails').textContent=r.delayed?'영상 분석이 평소보다 오래 걸리고 있습니다. 결과가 준비되면 표시합니다.':
+      final?'수집을 마쳤습니다. 각 항목의 결과와 안내를 확인해 주세요.':'중간 추정값은 신호가 충분할 때 표시되며, 측정하는 동안 달라질 수 있습니다.';
     if(r.metrics){
       const metadata=Object.entries(r.metrics).map(([key,m])=>key.toUpperCase()+': '+(m.sources.join(', ')||m.status)+(m.window?' · '+((m.window.endMs-m.window.startMs)/1000).toFixed(1)+'초 구간':''));
       el('modelEvidence').textContent=metadata.join(' / ');
@@ -45,14 +76,19 @@ export function mountMeasurement({onReset,onContinue}) {
     el('finalRrState').textContent=r.rr===null?r.rrReason:'추정값 · 정상 여부 판정 안 함';
     el('resultMeasurementMeta').textContent=`${label()} · 수집 ${clock(r.durationMs)} · ${r.fps.toFixed(1)}fps`;
   }
+  function showRespirationState(r,final,collectedMs) {
+    const display=respirationDisplay(r,final,collectedMs,mode);
+    el('rrState').textContent=display.state;el('rrDetails').textContent=display.reason;
+  }
   function buttons(active) {
     el('measureBtn').disabled=active;el('modeSelect').disabled=active;el('settingsMode').disabled=active;
     el('cancelMeasureBtn').hidden=!active;el('cameraFrame').classList.toggle('measuring',active);
   }
   function clearValues() {
-    result=null;el('continueBtn').hidden=true;
+    result=null;lastAnalysis=null;el('continueBtn').hidden=true;
     for(const id of ['hrValue','rrValue','questionHr','questionRr','finalHr','finalRr'])el(id).textContent='--';
     for(const id of ['hrState','rrState'])el(id).textContent='측정 전';
+    el('rrDetails').textContent='';el('hrDetails').textContent='';drawTimeline();
     for(const id of ['finalHrState','finalRrState','resultMeasurementMeta','qualityDetails'])el(id).textContent='';
     el('progressBar').style.width='0%';el('progressText').textContent='0%';el('timer').textContent='00:00 / 01:00';
     el('prepareTimer').textContent='준비 00:00 / 00:05';el('captureMeta').textContent='수신 대기';
@@ -74,16 +110,20 @@ export function mountMeasurement({onReset,onContinue}) {
       el('measureStatus').textContent=s.phase==='preparing'?'준비':s.phase==='collecting'?'수집 중':s.phase==='complete'?'분석 중':'신호 부족';
       el('prepareTimer').textContent=`준비 ${clock(s.preparedMs)} / ${clock(CONFIG.prepareMs)}`;
       el('timer').textContent=`${clock(s.collectedMs)} / ${clock(CONFIG.collectMs)}`;
-      const pct=Math.min(100,s.collectedMs/CONFIG.collectMs*100);
-      el('progressBar').style.width=pct+'%';el('progressText').textContent=Math.floor(pct)+'%';
+      drawTimeline(s);
       el('measurementGuide').textContent=mode==='demo'?'가상 데이터 체험 중 · 실제 생체신호가 아닙니다.':s.reason;
       el('captureMeta').textContent=`전체 ${clock(s.elapsedMs)} / 02:00 · 요청 30fps / 수신 ${s.fps.toFixed(1)}fps · 누락 ${s.droppedFrames || 0}프레임`;
+      showRespirationState(lastAnalysis,false,s.collectedMs);
     } else if(event.type==='reset') {
       showValues({hr:null,rr:null,wave:[]});
+      lastAnalysis=null;
+      drawTimeline({phase:'preparing',preparedMs:0,collectedMs:0});
       drawRespiration([]);el('modelEvidence').textContent='';el('inferenceDiagnostics').textContent='';
     } else if(event.type==='regions')drawRegions(event.polygons);
     else if(event.type==='analysis') {
       showValues(event.result,event.final);
+      if(event.final)drawTimeline({phase:'complete',collectedMs:event.result.durationMs},true);
+      else if(!lastState.phase || lastState.collectedMs < event.result.durationMs)drawTimeline({phase:'collecting',collectedMs:event.result.durationMs});
       if(event.final){result=event.result;buttons(false);el('measureStatus').textContent=result.hr===null && result.rr===null?'신호 부족':result.hr===null || result.rr===null?'부분 측정 완료':'측정 완료';el('continueBtn').hidden=false;el('measurementGuide').textContent=result.hr===null && result.rr===null?'측정 신호가 부족합니다. 재측정하거나 증상 문진을 진행할 수 있습니다.':'결과를 확인한 뒤 건강 문진으로 이동하세요.';}
     } else if(event.type==='error' || event.type==='cancelled') {
       buttons(false);

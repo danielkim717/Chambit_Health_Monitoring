@@ -36,7 +36,7 @@ test('serves only public application/model assets with correct MIME',async()=>{
   const server=createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base=`http://127.0.0.1:${server.address().port}`;
   try {
-    for(const [file,type] of [['/','text/html'],['/measurement-worker.mjs','text/javascript'],['/assets/mediapipe/vision_bundle.mjs','text/javascript'],['/assets/mediapipe/wasm/vision_wasm_internal.wasm','application/wasm'],['/assets/face_landmarker.task','application/octet-stream']]) {
+    for(const [file,type] of [['/','text/html'],['/measurement-timeline.mjs','text/javascript'],['/measurement-worker.mjs','text/javascript'],['/assets/mediapipe/vision_bundle.mjs','text/javascript'],['/assets/mediapipe/wasm/vision_wasm_internal.wasm','application/wasm'],['/assets/face_landmarker.task','application/octet-stream']]) {
       const r=await fetch(base+file);assert.equal(r.status,200,file);assert.ok(r.headers.get('content-type').startsWith(type));await r.arrayBuffer();
     }
     for(const file of ['/.env','/server.js','/package.json','/tests/server.test.mjs','/node_modules/@mediapipe/tasks-vision/vision_bundle.mjs','/assets/%2e%2e%2f.env','/assets/%5c..%5c.env'])assert.equal((await fetch(base+file)).status,403,file);

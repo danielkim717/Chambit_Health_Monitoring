@@ -18,7 +18,7 @@ const PUBLIC_FILES = new Set([
   'index.html', 'style.css', 'script.js', 'measurement-config.mjs',
   'measurement-session.mjs', 'measurement-controller.mjs', 'measurement-ui.mjs',
   'measurement-worker.js', 'measurement-worker.mjs', 'signal-analysis.mjs',
-  'consultation-ui.mjs',
+  'consultation-ui.mjs', 'measurement-timeline.mjs',
   'assets/face_landmarker.task', 'assets/mediapipe/vision_bundle.mjs',
   'assets/mediapipe/wasm/vision_wasm_internal.js',
   'assets/mediapipe/wasm/vision_wasm_internal.wasm',

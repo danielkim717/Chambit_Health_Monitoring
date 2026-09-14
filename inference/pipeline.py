@@ -8,6 +8,10 @@ import cv2
 import numpy as np
 
 from .signals import candidate, chrom, pos, derived_respiration, fuse
+from .feedback import explain_failure
+
+HR_PREVIEW_MS = 20000
+RR_PREVIEW_MS = 35000
 
 @dataclass
 class Measurement:
@@ -103,9 +107,9 @@ class Measurement:
         if len(self.samples) < 2:
             return None
         duration = self.samples[-1][0]-self.samples[0][0]
-        # Fill the incremental model cache before the first visible 30-second result.
+        # Fill the incremental model cache before the first visible 20-second result.
         hr = duration >= 6000 and duration-self.last_hr >= 2000
-        rr = duration >= 45000 and duration-self.last_rr >= 5000
+        rr = duration >= RR_PREVIEW_MS and duration-self.last_rr >= 5000
         if not final and not (hr or rr):
             return None
         if hr or final:
@@ -122,6 +126,7 @@ class Pipeline:
         self.cache = {}
         self.generation = None
         self.last_rr = None
+        self.last_rr_end = None
         self.last_rr_wave = []
 
     def run(self, job):
@@ -130,12 +135,17 @@ class Pipeline:
         if generation != self.generation:
             self.cache.clear()
             self.last_rr = None
+            self.last_rr_end = None
             self.last_rr_wave = []
             self.generation = generation
         samples = job['samples']
         times = np.array([s[0] for s in samples], dtype=float)
         start, end = float(times[0]), float(times[-1])
         acquisition_end = end
+        # Schedule from completed RR analysis, not from a queued request that may
+        # have been replaced by a newer HR snapshot while inference was busy.
+        rr_due = job['final'] or (end-start >= RR_PREVIEW_MS and
+                  (self.last_rr_end is None or end-self.last_rr_end >= 5000))
         fps = (len(times)-1)*1000/(end-start)
         # Align every candidate to the same supported 10-frame grid interval.
         end = start + int((end-start)*30/1000/10+1e-6)*10*1000/30
@@ -144,7 +154,8 @@ class Pipeline:
         # small gaps on an adequately sampled stream, never to disguise a low fps.
         raw_rgb = np.array([s[2] for s in samples])
         temporal_signal = bool(np.max(np.std(raw_rgb, axis=0)) > 1e-4)
-        timing_ok = fps >= 15 and np.max(np.diff(times)) < 500 and temporal_signal
+        max_gap = float(np.max(np.diff(times)))
+        timing_ok = fps >= 15 and max_gap < 500 and temporal_signal
         if timing_ok:
             fs = min(30., fps)
             grid = np.arange(start, end+.001, 1000/fs)
@@ -153,19 +164,24 @@ class Pipeline:
             for name, method in [('chrom', chrom), ('pos', pos)]:
                 wave = method(rgb, fs)
                 candidates.append(candidate(name, 'hr', wave, fs, start, end))
-                if name == 'chrom' and job['rrDue']:
+                if name == 'chrom' and rr_due:
                     rr = derived_respiration(wave, fs, start, end)
                     if rr:
                         candidates.append(rr)
         else:
-            errors.append({'model': 'capture', 'message': '프레임 속도 또는 연속성이 부족합니다.'})
+            code = 'low_fps' if fps < 15 else 'frame_gap' if max_gap >= 500 else 'weak_signal'
+            errors.append({'model': 'capture', 'code': code, 'fps': fps, 'maxGapMs': max_gap,
+                           'message': '프레임 속도, 연속성 또는 영상 변화량이 부족합니다.'})
         for adapter in self.models:
             spec = adapter.spec
             if adapter.model is None:
-                errors.append({'model': spec.id, 'message': adapter.error})
+                errors.append({'model': spec.id, 'code': 'model_unavailable', 'message': adapter.error})
                 continue
-            if not timing_ok or fps < spec.min_fps or np.max(np.diff(times)) > 100:
-                errors.append({'model': spec.id, 'message': '학습 모델은 실제 24fps 이상, 100ms 이하 프레임 간격이 필요합니다.'})
+            if not timing_ok or fps < spec.min_fps or max_gap > 100:
+                code = 'low_fps' if fps < spec.min_fps else 'frame_gap' if max_gap > 100 else 'weak_signal'
+                errors.append({'model': spec.id, 'code': code, 'fps': fps, 'maxGapMs': max_gap,
+                               'requiredFps': spec.min_fps, 'allowedGapMs': 100,
+                               'message': '학습 모델의 입력 속도, 연속성 또는 영상 변화량 조건을 충족하지 못했습니다.'})
                 continue
             model_start = time.perf_counter()
             try:
@@ -189,7 +205,7 @@ class Pipeline:
                     for metric in spec.metrics:
                         pieces[metric].append(output[metric])
                 for metric, segments in pieces.items():
-                    if not segments or (metric == 'rr' and not job['rrDue']):
+                    if not segments or (metric == 'rr' and not rr_due):
                         continue
                     # Reconstruct differences once over a contiguous output sequence.
                     # Never concatenate independently bandpassed/cumulative waveforms.
@@ -197,20 +213,23 @@ class Pipeline:
                     candidates.append(candidate(spec.id, metric, wave, spec.fps, start, end))
                 timings[spec.id] = round((time.perf_counter()-model_start)*1000, 1)
             except Exception as exc:
-                errors.append({'model': spec.id, 'message': f'{type(exc).__name__}: {exc}'})
+                errors.append({'model': spec.id, 'code': 'analysis_error', 'message': f'{type(exc).__name__}: {exc}'})
         hr, hr_audit = fuse(candidates, 'hr')
-        if job['rrDue']:
+        explain_failure('hr', hr, candidates, errors, self.models)
+        if rr_due:
             rr, rr_audit = fuse(candidates, 'rr')
+            explain_failure('rr', rr, candidates, errors, self.models)
             self.last_rr = (rr, rr_audit)
+            self.last_rr_end = acquisition_end
         elif self.last_rr is not None:
             rr, rr_audit = self.last_rr
         else:
             rr, rr_audit = fuse([], 'rr')
-            rr['status'], rr['reason'] = 'collecting', '호흡수는 45초부터 분석합니다.'
+            rr['status'], rr['reason'] = 'collecting', f'호흡수는 수집 {RR_PREVIEW_MS//1000}초부터 분석합니다.'
         valid_hr, valid_rr = hr['value'] is not None, rr['value'] is not None
         best = next((c for c in candidates if c['id'] in hr_audit['selected']), None)
         best_rr = next((c for c in candidates if c['id'] in rr_audit['selected']), None)
-        if job['rrDue']:
+        if rr_due:
             self.last_rr_wave = best_rr['wave'] if best_rr else []
         scene = {'receivedFps': fps, 'maxGapMs': float(np.max(np.diff(times))),
                  'droppedFrames': job['state']['droppedFrames']}
@@ -226,4 +245,4 @@ class Pipeline:
                 'audit': {'scene': scene, 'hr': hr_audit, 'rr': rr_audit},
                 'errors': errors, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
                     'queueMs': round((started-job['queuedAt'])*1000, 1)},
-                'delayed': (time.perf_counter()-job['queuedAt'])*1000 > (5000 if job['rrDue'] else 2000)}
+                'delayed': (time.perf_counter()-job['queuedAt'])*1000 > (5000 if rr_due else 2000)}

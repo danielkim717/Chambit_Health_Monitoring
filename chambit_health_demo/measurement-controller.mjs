@@ -153,7 +153,8 @@ export class MeasurementController {
       const final=state.phase==='complete';
       if(final || now-lastUpdate>=CONFIG.updateMs) {
         lastUpdate=now;const visible=state.collectedMs>=CONFIG.previewMs;
-        const result={mode:'demo',hr:visible?72:null,rr:visible?15:null,quality:visible?'good':'collecting',
+        const rrVisible=state.collectedMs>=CONFIG.respirationPreviewMs;
+        const result={mode:'demo',hr:visible?72:null,rr:rrVisible?15:null,quality:rrVisible?'good':visible?'partial':'collecting',
           hrReason:'가상 데이터',rrReason:'가상 데이터',durationMs:state.collectedMs,fps:state.fps,
           wave:state.phase==='preparing'?[]:Array.from({length:210},(_,i)=>Math.sin(2*Math.PI*1.2*(i/30+now/1000)))};
         if(final)this.stop('');
