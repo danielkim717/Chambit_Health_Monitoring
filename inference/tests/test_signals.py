@@ -15,6 +15,33 @@ def test_flat_and_noise_are_not_measurements():
         assert candidate('test','hr',x,30,0,60000)['value'] is None
     assert derived_respiration(np.sin(np.arange(1800)/30*2*np.pi),30,0,60000) is None
 
+
+def test_rejected_respiration_keeps_evidence_without_becoming_a_measurement():
+    import json
+    # A changing respiratory frequency has a spectral peak, but is not periodic.
+    from scipy.signal import chirp
+    wave = chirp(np.arange(1800)/30, f0=.12, f1=.48, t1=60)
+    ordinary = candidate('test', 'rr', wave, 30, 0, 60000)
+    detailed = candidate('test', 'rr', wave, 30, 0, 60000, include_diagnostics=True)
+    assert detailed['value'] is None and 'periodicity' in detailed['rejectionCodes']
+    assert detailed['checks']['periodicity']['actual'] < .4
+    assert detailed['features']['spectralPeakRate'] > 0
+    assert 'signalDiagnostics' not in ordinary
+    assert detailed['signalDiagnostics']['inputWave'] == wave.tolist()
+    assert len(detailed['signalDiagnostics']['filteredWave']) == 1680
+    assert detailed['signalDiagnostics']['filteredStartMs'] == 2000
+    assert ordinary == {k: v for k, v in detailed.items() if k != 'signalDiagnostics'}
+    json.dumps(detailed, allow_nan=False)
+
+
+def test_nonfinite_diagnostic_input_is_not_serialized_as_nan():
+    import json
+    result = candidate('test', 'rr', np.full(1800, np.nan), 30, 0, 60000,
+                       include_diagnostics=True)
+    assert result['value'] is None and 'finite' in result['rejectionCodes']
+    assert result['signalDiagnostics']['inputWave'] == []
+    json.dumps(result, allow_nan=False)
+
 def c(id,value,quality=.9,metric='hr',**kwargs):
     return dict(id=id,model=id,family=id,metric=metric,value=value,quality=quality,
                 status='valid',startMs=0,endMs=60000,features={},**kwargs)

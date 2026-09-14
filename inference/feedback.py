@@ -20,6 +20,9 @@ def explain_failure(metric, result, candidates, errors, models, capture=None):
             code = 'processing_slow'
     elif 'frame_gap' in codes:
         code = 'frame_gap'
+    elif (observed := [c for c in candidates if c['metric'] == metric]) and all(
+            'periodicity' in c.get('rejectionCodes', []) for c in observed):
+        code = 'unclear_periodicity'
     elif any(c['metric'] == metric for c in candidates) or 'weak_signal' in codes:
         code = 'weak_signal'
     elif 'model_unavailable' in codes or (metric == 'rr' and not model_ids):
@@ -29,6 +32,7 @@ def explain_failure(metric, result, candidates, errors, models, capture=None):
     else:
         code = 'weak_signal'
     messages = {
+        'unclear_periodicity': f'영상에서 반복되는 {"맥박" if metric == "hr" else "호흡"} 변화를 뚜렷하게 찾지 못해 {label}를 표시하지 못했습니다. 편안하게 정면을 바라보며 자연스럽게 호흡하고 다시 측정해 주세요. 이 결과만으로 실제 호흡이나 심장 상태를 판단할 수는 없습니다.',
         'low_fps': f'카메라 영상이 충분히 부드럽게 전달되지 않아 {label}를 측정하지 못했습니다. 다른 카메라 앱이나 무거운 작업을 닫고, 밝은 곳에서 다시 측정해 주세요.',
         'processing_slow': f'카메라 영상은 들어오고 있지만 앱의 영상 처리나 전송 중 일부가 누락되어 {label}를 측정하지 못했습니다. 다른 무거운 작업을 닫고 다시 시도해 주세요.',
         'frame_gap': f'영상이 중간에 끊겨 {label}를 측정하지 못했습니다. 카메라 연결을 확인하고 얼굴을 화면 안에 유지한 채 다시 측정해 주세요.',

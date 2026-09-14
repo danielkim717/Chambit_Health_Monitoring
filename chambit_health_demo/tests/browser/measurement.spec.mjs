@@ -137,6 +137,7 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await page.goto('/');await page.locator('#startHero').click();await page.locator('#cameraBtn').click();
   await page.locator('#measureBtn').click();
   await expect(page.locator('#hrValue')).toHaveText('72');
+  await expect(page.locator('#downloadAnalysisBtn')).toBeDisabled();
   await expect(page.locator('#rrState')).toHaveText('호흡 신호 수집 중');
   await expect(page.locator('#rrDetails')).toContainText('35초부터');
   await expect(page.locator('#timelineHr')).toHaveClass(/is-reached/);
@@ -151,11 +152,26 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   send('analysis',{result:measurement(16,null),final:false});
   await expect(page.locator('#rrValue')).toHaveText('16');
   await expect(page.locator('#hrValue')).toHaveText('--');
-  send('analysis',{result:{...measurement(16,null),durationMs:60000,resultId:'c'.repeat(32)},final:true});
+  send('analysis',{result:{...measurement(16,null),durationMs:60000,resultId:'c'.repeat(32),
+    signalDiagnostics:{'mtts_can:rr':{inputWave:[0,1,0,-1],sampleRate:30}},
+    frames:['excluded-video'],answers:['excluded-interview']},final:true});
   await expect(page.locator('#rrState')).toHaveText('호흡수 추정값');
   await expect(page.locator('#finalRr')).toHaveText('16');
   await expect(page.locator('#timelineEnd')).toHaveClass(/is-reached/);
+  await page.locator('.measurement-diagnostics summary').click();
+  await expect(page.locator('#downloadAnalysisBtn')).toBeEnabled();
+  const downloading=page.waitForEvent('download');
+  await page.locator('#downloadAnalysisBtn').click();
+  const download=await downloading;
+  expect(download.suggestedFilename()).toMatch(/^measurement-analysis-.*\.json$/);
+  const stream=await download.createReadStream(),chunks=[];
+  for await(const chunk of stream)chunks.push(chunk);
+  const saved=Buffer.concat(chunks).toString('utf8'),parsed=JSON.parse(saved);
+  expect(parsed.hr).toBeNull();expect(parsed.rr).toBe(16);
+  expect(parsed.signalDiagnostics['mtts_can:rr'].inputWave).toEqual([0,1,0,-1]);
+  expect(saved).not.toContain('excluded-');
   await page.locator('#measureBtn').click();
+  await expect(page.locator('#downloadAnalysisBtn')).toBeDisabled();
   await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
   await expect(page.locator('#captureNotice')).toBeHidden();
 });

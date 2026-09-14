@@ -52,6 +52,37 @@ def test_rr_runs_after_displaced_job_and_without_valid_hr(pipeline):
     assert reset['rr'] is None and reset['respWave'] == []
 
 
+def test_full_waveforms_only_in_final_result_and_preserve_rejected_candidates(pipeline):
+    import json
+    intermediate = pipeline.run(job(36))
+    assert 'signalDiagnostics' not in intermediate
+    final = pipeline.run(job(60, final=True))
+    assert final['hr'] is None and final['rr'] == pytest.approx(15, abs=1)
+    diagnostics = final['signalDiagnostics']
+    assert len(diagnostics['mtts_can:rr']['inputWave']) == 1800
+    assert diagnostics['mtts_can:rr']['chunkLengths'] == [180]*10
+    assert diagnostics['mtts_can:hr']['inputWave'] == [0.]*1800
+    assert all('signalDiagnostics' not in c for c in final['candidates'])
+    assert np.allclose(np.cumsum(diagnostics['mtts_can:rr']['modelDifferences']),
+                       diagnostics['mtts_can:rr']['inputWave'])
+    json.dumps(final, allow_nan=False)
+
+
+def test_respiration_rejection_explains_detected_signal_not_camera_speed(pipeline):
+    from scipy.signal import chirp
+    def predict(frames):
+        t = frames[:, 0, 0, 0]
+        return {'hr': np.zeros(len(t)-1),
+                'rr': np.diff(chirp(t, f0=.12, f1=.48, t1=60))}
+    pipeline.models[0].predict = predict
+    result = pipeline.run(job(60, final=True))
+    assert result['rr'] is None
+    assert result['metrics']['rr']['reasonCode'] == 'unclear_periodicity'
+    assert '반복되는 호흡 변화' in result['rrReason']
+    assert 'mtts_can' not in result['rrReason'] and 'fps' not in result['rrReason']
+    assert result['signalDiagnostics']['mtts_can:rr']['filteredWave']
+
+
 def test_rr_input_rejection_names_the_model_and_condition(pipeline):
     result = pipeline.run(job(60, fps=20, final=True))
     assert result['rr'] is None

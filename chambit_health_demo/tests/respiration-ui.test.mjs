@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { respirationDisplay } from '../measurement-ui.mjs';
+import { respirationDisplay, measurementAnalysisFile } from '../measurement-ui.mjs';
+
+test('analysis export keeps rejected evidence but excludes video and interview data',()=>{
+  const result={mode:'real',hr:72,rr:null,signalDiagnostics:{'test:rr':{inputWave:[1,2,3]}},
+    candidates:[{value:null,features:{spectralPeakRate:12}}],
+    frames:['private'],pixels:['private'],answers:['private'],resultId:'private'};
+  const file=measurementAnalysisFile(result),parsed=JSON.parse(file);
+  assert.equal(parsed.rr,null);
+  assert.deepEqual(parsed.signalDiagnostics,result.signalDiagnostics);
+  assert.equal(parsed.candidates[0].value,null);
+  assert.ok(!file.includes('private'));
+  assert.equal(measurementAnalysisFile(null),null);
+  assert.equal(measurementAnalysisFile({mode:'real'}),null);
+  assert.equal(measurementAnalysisFile({...result,mode:'demo'}),null);
+});
 
 test('respiration explains its later start while heart rate is visible',()=>{
   const result={hr:72,rr:null,metrics:{rr:{status:'collecting'}}};

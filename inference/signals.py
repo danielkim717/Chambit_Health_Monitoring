@@ -8,19 +8,38 @@ def bandpass(x, fs, band):
     x = signal.detrend(np.asarray(x, dtype=float))
     return signal.sosfiltfilt(signal.butter(2, band, fs=fs, btype='bandpass', output='sos'), x)
 
-def candidate(model, metric, wave, fs, start, end, family=None):
+def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagnostics=False):
     base = {'id': f'{model}:{metric}', 'model': model, 'metric': metric,
             'family': family or model, 'startMs': start, 'endMs': end,
             'value': None, 'quality': 0., 'status': 'insufficient', 'reason': '주기성이 부족합니다.',
-            'features': {}, 'wave': [], 'sampleRate': float(fs)}
+            'features': {}, 'checks': {}, 'rejectionCodes': [], 'wave': [], 'sampleRate': float(fs)}
     wave = np.asarray(wave, dtype=float)
-    if len(wave) < fs * (20 if metric == 'hr' else 35) or not np.isfinite(wave).all() or np.std(wave) < 1e-8:
+    minimum_seconds = 20 if metric == 'hr' else 35
+    finite = bool(np.isfinite(wave).all())
+    base['checks'] = {'duration': {'passed': len(wave) >= fs * minimum_seconds,
+                                  'actualSeconds': len(wave)/fs, 'minimumSeconds': minimum_seconds},
+                      'finite': {'passed': finite},
+                      'variation': {'passed': finite and bool(np.std(wave) >= 1e-8)}}
+    base['rejectionCodes'] = [key for key, check in base['checks'].items() if not check['passed']]
+    if include_diagnostics:
+        base['signalDiagnostics'] = {
+            'sampleRate': float(fs), 'startMs': start, 'endMs': end,
+            'inputWave': wave.tolist() if finite else [], 'filteredWave': [],
+            'filter': {'kind': 'linear_detrend_butterworth_sosfiltfilt', 'order': 2,
+                       'bandHz': list(BANDS[metric]), 'trimEachSideSeconds': 2},
+            'note': 'Diagnostic signal only; a spectral peak is not an accepted vital sign.'}
+    if base['rejectionCodes']:
         return base
     # Discard filter edges; retain the represented acquisition interval in metadata.
     x = bandpass(wave, fs, BANDS[metric])
     trim = int(fs * 2)
     x = x[trim:-trim]
+    if include_diagnostics:
+        base['signalDiagnostics'].update(filteredWave=x.tolist(),
+                                         filteredStartMs=start+trim/fs*1000)
     if np.std(x) < 1e-8:
+        base['rejectionCodes'] = ['filtered_variation']
+        base['checks']['filtered_variation'] = {'passed': False}
         return base
     f, power = signal.periodogram(x, fs=fs, window='hann', nfft=max(8192, len(x)))
     mask = (f >= BANDS[metric][0]) & (f <= BANDS[metric][1])
@@ -31,16 +50,26 @@ def candidate(model, metric, wave, fs, start, end, family=None):
     concentration = float(power[np.abs(f-freq) <= width].sum() / max(power.sum(), 1e-12))
     lag = int(round(fs/freq))
     periodicity = float(np.corrcoef(x[lag:], x[:-lag])[0, 1]) if lag < len(x)//2 else 0.
+    if not np.isfinite(periodicity):
+        periodicity = 0.
     normalized = inband / max(inband.sum(), 1e-12)
     entropy = float(-np.sum(normalized * np.log(normalized+1e-12)) / np.log(len(normalized)))
     ratio = float(power[mask].sum() / max(power.sum(), 1e-12))
     snr = float(10*np.log10(max(concentration, 1e-6)/max(1-concentration, 1e-6)))
     quality = float(np.clip(.5*concentration + .4*max(0, periodicity) + .1*(1-entropy), 0, 1))
     base.update(features={'concentration': concentration, 'periodicity': periodicity,
-                          'spectralEntropy': entropy, 'inBandEnergy': ratio, 'snrDb': snr},
+                          'spectralEntropy': entropy, 'inBandEnergy': ratio, 'snrDb': snr,
+                          'spectralPeakHz': float(freq), 'spectralPeakRate': float(freq*60)},
                 quality=quality, wave=x[-int(fs*8)::max(1, int(fs/15))].tolist())
     # The edge of a search band is not evidence that the true rate is in range.
-    if concentration >= .45 and periodicity >= .4 and BANDS[metric][0]+.005 < freq < BANDS[metric][1]-.005:
+    base['checks'].update({
+        'concentration': {'passed': concentration >= .45, 'actual': concentration, 'minimum': .45},
+        'periodicity': {'passed': periodicity >= .4, 'actual': periodicity, 'minimum': .4},
+        'bandInterior': {'passed': bool(BANDS[metric][0]+.005 < freq < BANDS[metric][1]-.005),
+                         'actualHz': float(freq), 'exclusiveMinimumHz': BANDS[metric][0]+.005,
+                         'exclusiveMaximumHz': BANDS[metric][1]-.005}})
+    base['rejectionCodes'] = [key for key, check in base['checks'].items() if not check['passed']]
+    if not base['rejectionCodes']:
         base.update(value=float(freq*60), status='valid', reason='')
     return base
 

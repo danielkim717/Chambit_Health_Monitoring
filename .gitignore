@@ -15,3 +15,4 @@ inference/artifacts/
 *.log
 .env
 .publish/
+measurement-analysis-*.json

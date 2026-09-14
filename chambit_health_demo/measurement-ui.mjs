@@ -3,6 +3,16 @@ import { MeasurementController } from './measurement-controller.mjs';
 import { measurementTimeline } from './measurement-timeline.mjs';
 import { captureNotice } from './frame-pump.mjs';
 
+// Deliberate local export of numerical evidence, never the capture buffer or interview.
+export function measurementAnalysisFile(result) {
+  if(!result || result.mode!=='real' || !result.signalDiagnostics)return null;
+  const fields=['mode','hr','rr','hrReason','rrReason','metrics','durationMs','fps','quality',
+    'capture','timing','errors','candidates','audit','signalDiagnostics'];
+  const payload={formatVersion:1,description:'Numerical measurement diagnostics; rejected peaks are not vital signs.'};
+  for(const key of fields)if(result[key]!==undefined)payload[key]=result[key];
+  return JSON.stringify(payload,null,2);
+}
+
 export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
   if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:''};
   if(final)return {state:'측정 불가',reason:result?.rrReason || '호흡 신호가 부족합니다.'};
@@ -90,6 +100,7 @@ export function mountMeasurement({onReset,onContinue}) {
   }
   function clearValues() {
     result=null;lastAnalysis=null;el('continueBtn').hidden=true;
+    el('downloadAnalysisBtn').disabled=true;
     for(const id of ['hrValue','rrValue','questionHr','questionRr','finalHr','finalRr'])el(id).textContent='--';
     for(const id of ['hrState','rrState'])el(id).textContent='측정 전';
     el('rrDetails').textContent='';el('hrDetails').textContent='';drawTimeline();
@@ -127,6 +138,7 @@ export function mountMeasurement({onReset,onContinue}) {
         (capture?` · 카메라 ${capture.cameraFps || 0}fps / 얼굴 처리 ${capture.processedFps || 0}fps · 얼굴 처리 평균 ${capture.extractionMeanMs || 0}ms · 처리 대기 교체 ${capture.pendingReplaced || 0}프레임`:'');
       showRespirationState(lastAnalysis,false,s.collectedMs);
     } else if(event.type==='reset') {
+      result=null;el('downloadAnalysisBtn').disabled=true;
       showValues({hr:null,rr:null,wave:[]});
       lastAnalysis=null;
       drawTimeline({phase:'preparing',preparedMs:0,collectedMs:0});
@@ -136,7 +148,7 @@ export function mountMeasurement({onReset,onContinue}) {
       showValues(event.result,event.final);
       if(event.final)drawTimeline({phase:'complete',collectedMs:event.result.durationMs},true);
       else if(!lastState.phase || lastState.collectedMs < event.result.durationMs)drawTimeline({phase:'collecting',collectedMs:event.result.durationMs});
-      if(event.final){result=event.result;buttons(false);el('measureStatus').textContent=result.hr===null && result.rr===null?'신호 부족':result.hr===null || result.rr===null?'부분 측정 완료':'측정 완료';el('continueBtn').hidden=false;el('measurementGuide').textContent=result.hr===null && result.rr===null?'측정 신호가 부족합니다. 재측정하거나 증상 문진을 진행할 수 있습니다.':'결과를 확인한 뒤 건강 문진으로 이동하세요.';}
+      if(event.final){result=event.result;el('downloadAnalysisBtn').disabled=mode!=='real' || !result.signalDiagnostics;buttons(false);el('measureStatus').textContent=result.hr===null && result.rr===null?'신호 부족':result.hr===null || result.rr===null?'부분 측정 완료':'측정 완료';el('continueBtn').hidden=false;el('measurementGuide').textContent=result.hr===null && result.rr===null?'측정 신호가 부족합니다. 재측정하거나 증상 문진을 진행할 수 있습니다.':'결과를 확인한 뒤 건강 문진으로 이동하세요.';}
     } else if(event.type==='error' || event.type==='cancelled') {
       buttons(false);
       if(event.type==='cancelled' && !event.reason)return;
@@ -161,6 +173,15 @@ export function mountMeasurement({onReset,onContinue}) {
   el('measureBtn').onclick=()=>controller.start(mode);
   el('cancelMeasureBtn').onclick=()=>controller.stop();
   el('continueBtn').onclick=()=>{if(result)onContinue();};
+  el('downloadAnalysisBtn').onclick=()=>{
+    const content=measurementAnalysisFile(result);
+    if(!content)return;
+    const url=URL.createObjectURL(new Blob([content],{type:'application/json'}));
+    const link=document.createElement('a');link.href=url;
+    link.download=`measurement-analysis-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+    document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
   document.addEventListener('visibilitychange',()=>{if(document.hidden)controller.closeCamera('탭이 숨겨져 측정을 취소했습니다.');});
   window.addEventListener('pagehide',()=>controller.closeCamera('페이지를 떠나 측정을 취소했습니다.'));
   drawWave();

@@ -167,7 +167,10 @@ class Pipeline:
             rgb = np.column_stack([np.interp(grid, times, rgb[:, c]) for c in range(3)])
             for name, method in [('chrom', chrom), ('pos', pos)]:
                 wave = method(rgb, fs)
-                candidates.append(candidate(name, 'hr', wave, fs, start, end))
+                c = candidate(name, 'hr', wave, fs, start, end, include_diagnostics=job['final'])
+                if job['final']:
+                    c['signalDiagnostics']['inputMeaning'] = 'baseline_pulse_waveform'
+                candidates.append(c)
                 if name == 'chrom' and rr_due:
                     rr = derived_respiration(wave, fs, start, end)
                     if rr:
@@ -218,8 +221,16 @@ class Pipeline:
                         continue
                     # Reconstruct differences once over a contiguous output sequence.
                     # Never concatenate independently bandpassed/cumulative waveforms.
-                    wave = np.cumsum(np.concatenate(segments))
-                    candidates.append(candidate(spec.id, metric, wave, spec.fps, start, end))
+                    differences = np.concatenate(segments)
+                    wave = np.cumsum(differences)
+                    c = candidate(spec.id, metric, wave, spec.fps, start, end,
+                                  include_diagnostics=job['final'])
+                    if job['final']:
+                        c['signalDiagnostics'].update(inputMeaning='cumulative_model_temporal_difference',
+                            modelDifferences=differences.tolist(), chunkFrames=spec.chunk_frames,
+                            chunkLengths=[len(segment) for segment in segments],
+                            normalization='per_chunk', inputSize=spec.size)
+                    candidates.append(c)
                 timings[spec.id] = round((time.perf_counter()-model_start)*1000, 1)
             except Exception as exc:
                 errors.append({'model': spec.id, 'code': 'analysis_error', 'message': f'{type(exc).__name__}: {exc}'})
@@ -251,7 +262,9 @@ class Pipeline:
                 'metrics': {'hr': hr, 'rr': rr}, 'durationMs': acquisition_end-start, 'fps': fps,
                 'quality': 'good' if valid_hr and valid_rr else 'partial' if valid_hr or valid_rr else 'insufficient',
                 'wave': best['wave'] if best else [], 'respWave': self.last_rr_wave,
-                'candidates': [{k: v for k, v in c.items() if k != 'wave'} for c in candidates],
+                'candidates': [{k: v for k, v in c.items() if k not in ('wave', 'signalDiagnostics')} for c in candidates],
+                **({'signalDiagnostics': {c['id']: c['signalDiagnostics'] for c in candidates
+                                          if 'signalDiagnostics' in c}} if job['final'] else {}),
                 'audit': {'scene': scene, 'hr': hr_audit, 'rr': rr_audit},
                 'errors': errors, 'capture': capture, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
                     'queueMs': round((started-job['queuedAt'])*1000, 1)},
