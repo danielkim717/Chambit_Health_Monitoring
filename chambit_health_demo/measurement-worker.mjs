@@ -71,7 +71,7 @@ self.onmessage=async ({data})=>{
     } else if(data.type==='frame') {
       try {
         const started=performance.now(),sample=extract(data.bitmap,data.t);
-        postMessage({type:'sample',...sample,extractionMs:performance.now()-started},sample.pixels?[sample.pixels.buffer]:[]);
+        postMessage({type:'sample',...sample,revision:data.revision,extractionMs:performance.now()-started},sample.pixels?[sample.pixels.buffer]:[]);
       } finally {data.bitmap.close();postMessage({type:'frameDone'});}
     }
   } catch(error) {postMessage({type:'error',message:error.message || String(error)});}

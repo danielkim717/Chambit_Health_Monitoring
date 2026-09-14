@@ -1,6 +1,6 @@
 """User-facing measurement feedback, separate from model diagnostics."""
 
-def explain_failure(metric, result, candidates, errors, models):
+def explain_failure(metric, result, candidates, errors, models, capture=None):
     if result['value'] is not None:
         return
     label = '심박수' if metric == 'hr' else '호흡수'
@@ -11,6 +11,13 @@ def explain_failure(metric, result, candidates, errors, models):
         code = 'conflict'
     elif 'low_fps' in codes:
         code = 'low_fps'
+        # Client telemetry explains the likely bottleneck; it cannot validate a
+        # rejected physiological result or change measured server timestamps.
+        capture = capture or {}
+        if capture.get('cameraFps', 0) >= 24 and (
+            capture.get('pendingReplaced', 0) > 0 or capture.get('bitmapDropped', 0) > 0 or
+            capture.get('transportDropped', 0) > 0):
+            code = 'processing_slow'
     elif 'frame_gap' in codes:
         code = 'frame_gap'
     elif any(c['metric'] == metric for c in candidates) or 'weak_signal' in codes:
@@ -23,6 +30,7 @@ def explain_failure(metric, result, candidates, errors, models):
         code = 'weak_signal'
     messages = {
         'low_fps': f'카메라 영상이 충분히 부드럽게 전달되지 않아 {label}를 측정하지 못했습니다. 다른 카메라 앱이나 무거운 작업을 닫고, 밝은 곳에서 다시 측정해 주세요.',
+        'processing_slow': f'카메라 영상은 들어오고 있지만 앱의 영상 처리나 전송 중 일부가 누락되어 {label}를 측정하지 못했습니다. 다른 무거운 작업을 닫고 다시 시도해 주세요.',
         'frame_gap': f'영상이 중간에 끊겨 {label}를 측정하지 못했습니다. 카메라 연결을 확인하고 얼굴을 화면 안에 유지한 채 다시 측정해 주세요.',
         'weak_signal': f'얼굴 영상에서 {label} 신호를 충분히 구분하지 못했습니다. 얼굴에 빛이 고르게 닿도록 하고, 움직임을 줄여 다시 측정해 주세요.',
         'model_unavailable': f'{label} 측정 기능을 준비하지 못했습니다. 잠시 후 다시 시도하고, 계속되면 측정 서버의 실행 상태를 확인해 주세요.',

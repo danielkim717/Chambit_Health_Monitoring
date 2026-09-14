@@ -1,6 +1,7 @@
 import { CONFIG } from './measurement-config.mjs';
 import { MeasurementController } from './measurement-controller.mjs';
 import { measurementTimeline } from './measurement-timeline.mjs';
+import { captureNotice } from './frame-pump.mjs';
 
 export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
   if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:''};
@@ -19,7 +20,7 @@ export function respirationDisplay(result, final=false, collectedMs=0, mode='rea
 
 export function mountMeasurement({onReset,onContinue}) {
   const el=id=>document.getElementById(id), video=el('video');
-  let mode='real',result=null,lastAnalysis=null,lastState={};
+  let mode='real',result=null,lastAnalysis=null,lastState={},lastRegionsAt=-Infinity;
   const wave=el('waveCanvas'),ctx=wave.getContext('2d'),overlay=el('roiCanvas');
   const clock=ms=>`${String(Math.floor(ms/60000)).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}`;
   const label=()=>mode==='demo'?'가상 데이터 · 데모':'실제 웹캠 추정';
@@ -44,7 +45,10 @@ export function mountMeasurement({onReset,onContinue}) {
     values.forEach((v,i)=>{const x=i/(values.length-1)*wave.width,y=wave.height/2-v/max*wave.height*0.4;if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();
   }
   function drawRegions(polygons=[]) {
-    overlay.width=overlay.clientWidth;overlay.height=overlay.clientHeight;
+    if(polygons.length && performance.now()-lastRegionsAt<100)return;
+    lastRegionsAt=performance.now();
+    if(overlay.width!==overlay.clientWidth)overlay.width=overlay.clientWidth;
+    if(overlay.height!==overlay.clientHeight)overlay.height=overlay.clientHeight;
     const c=overlay.getContext('2d');c.clearRect(0,0,overlay.width,overlay.height);
     if(!video.videoWidth)return;
     const scale=Math.max(overlay.width/video.videoWidth,overlay.height/video.videoHeight);
@@ -64,7 +68,7 @@ export function mountMeasurement({onReset,onContinue}) {
     if(r.metrics){
       const metadata=Object.entries(r.metrics).map(([key,m])=>key.toUpperCase()+': '+(m.sources.join(', ')||m.status)+(m.window?' · '+((m.window.endMs-m.window.startMs)/1000).toFixed(1)+'초 구간':''));
       el('modelEvidence').textContent=metadata.join(' / ');
-      el('inferenceDiagnostics').textContent=JSON.stringify({timing:r.timing,errors:r.errors,candidates:r.candidates,audit:r.audit},null,2);
+      el('inferenceDiagnostics').textContent=JSON.stringify({capture:r.capture,timing:r.timing,errors:r.errors,candidates:r.candidates,audit:r.audit},null,2);
     }
     if(Array.isArray(r.respWave))drawRespiration(r.respWave);
     drawWave(r.wave);
@@ -89,6 +93,7 @@ export function mountMeasurement({onReset,onContinue}) {
     for(const id of ['hrValue','rrValue','questionHr','questionRr','finalHr','finalRr'])el(id).textContent='--';
     for(const id of ['hrState','rrState'])el(id).textContent='측정 전';
     el('rrDetails').textContent='';el('hrDetails').textContent='';drawTimeline();
+    el('captureNotice').textContent='';el('captureNotice').hidden=true;
     for(const id of ['finalHrState','finalRrState','resultMeasurementMeta','qualityDetails'])el(id).textContent='';
     el('progressBar').style.width='0%';el('progressText').textContent='0%';el('timer').textContent='00:00 / 01:00';
     el('prepareTimer').textContent='준비 00:00 / 00:05';el('captureMeta').textContent='수신 대기';
@@ -107,12 +112,19 @@ export function mountMeasurement({onReset,onContinue}) {
       el('serverStatus').textContent=event.status.models.map(m=>m.id+': '+(m.ready?'준비됨':'사용 불가')).join(' · ') || 'CHROM·POS 비교 기준만 사용';
     } else if(event.type==='state') {
       const s=event.state;
+      // Keep frame ingestion independent of expensive DOM/layout updates.
+      if(s.phase===lastState.phase && s.revision===lastState.revision &&
+         (s.elapsedMs || 0)-(lastState.elapsedMs || 0)<250)return;
       el('measureStatus').textContent=s.phase==='preparing'?'준비':s.phase==='collecting'?'수집 중':s.phase==='complete'?'분석 중':'신호 부족';
       el('prepareTimer').textContent=`준비 ${clock(s.preparedMs)} / ${clock(CONFIG.prepareMs)}`;
       el('timer').textContent=`${clock(s.collectedMs)} / ${clock(CONFIG.collectMs)}`;
       drawTimeline(s);
       el('measurementGuide').textContent=mode==='demo'?'가상 데이터 체험 중 · 실제 생체신호가 아닙니다.':s.reason;
-      el('captureMeta').textContent=`전체 ${clock(s.elapsedMs)} / 02:00 · 요청 30fps / 수신 ${s.fps.toFixed(1)}fps · 누락 ${s.droppedFrames || 0}프레임`;
+      const capture=s.capture;
+      const notice=captureNotice(capture);
+      el('captureNotice').textContent=notice;el('captureNotice').hidden=!notice;
+      el('captureMeta').textContent=`전체 ${clock(s.elapsedMs)} / 02:00 · 요청 30fps / 유효 수신 ${s.fps.toFixed(1)}fps · 전송 순서 누락 ${s.droppedFrames || 0}프레임`+
+        (capture?` · 카메라 ${capture.cameraFps || 0}fps / 얼굴 처리 ${capture.processedFps || 0}fps · 얼굴 처리 평균 ${capture.extractionMeanMs || 0}ms · 처리 대기 교체 ${capture.pendingReplaced || 0}프레임`:'');
       showRespirationState(lastAnalysis,false,s.collectedMs);
     } else if(event.type==='reset') {
       showValues({hr:null,rr:null,wave:[]});

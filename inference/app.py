@@ -68,6 +68,14 @@ def decode_frame(data):
             raise ValueError('Invalid frame timestamp/sequence')
     if not isinstance(header['seq'], int) or not isinstance(header['revision'], int):
         raise ValueError('Sequence must be integer')
+    capture = header.get('capture', {})
+    allowed = {'configuredFps', 'cameraFps', 'callbackFps', 'processedFps', 'observedFrames',
+               'processedFrames', 'invalidFrames', 'bitmapDropped', 'pendingReplaced',
+               'transportDropped', 'extractionMeanMs', 'extractionP95Ms'}
+    if not isinstance(capture, dict) or not set(capture).issubset(allowed) or any(
+        isinstance(value, bool) or not isinstance(value, (int, float)) or
+        not math.isfinite(value) or not 0 <= value <= 1e8 for value in capture.values()):
+        raise ValueError('Invalid capture diagnostics')
     rgb = header.get('rgb')
     raw = data[4+size:]
     if rgb is None:

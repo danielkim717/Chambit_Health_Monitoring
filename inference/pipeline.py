@@ -36,6 +36,7 @@ class Measurement:
     last_rr: float = 0
     clock_skew_ms: float | None = None
     transit_ms: float = 0
+    capture: dict = field(default_factory=dict)
 
     def reset(self, reason):
         self.revision += 1
@@ -43,6 +44,7 @@ class Measurement:
         self.samples.clear()
         self.stable = self.collection = self.good = None
         self.last_hr = self.last_rr = 0
+        self.capture = {}
         self.reason = reason
 
     def tick(self, t):
@@ -63,6 +65,7 @@ class Measurement:
         self.dropped += max(0, seq-self.last_seq-1) if self.last_seq >= 0 else 0
         self.last, self.last_seq = t, seq
         self.received += 1
+        self.capture = dict(packet.get('capture', {}))
         self.tick(t)
         if self.phase not in ('preparing', 'collecting'):
             return False
@@ -101,7 +104,8 @@ class Measurement:
                 'preparedMs': min(self.prepare_ms, max(0, good-stable)),
                 'collectedMs': min(duration, self.collect_ms), 'elapsedMs': max(0, now-self.started),
                 'fps': fps, 'requestedFps': 30, 'receivedFrames': self.received,
-                'droppedFrames': self.dropped, 'transportDelayMs': round(self.transit_ms, 1)}
+                'droppedFrames': self.dropped, 'transportDelayMs': round(self.transit_ms, 1),
+                'capture': dict(self.capture)}
 
     def job(self, final=False):
         if len(self.samples) < 2:
@@ -185,8 +189,6 @@ class Pipeline:
                 continue
             model_start = time.perf_counter()
             try:
-                # Resizing before temporal interpolation avoids a full-resolution float buffer.
-                reduced = np.stack([cv2.resize(s[1], (spec.size, spec.size), interpolation=cv2.INTER_AREA) for s in samples])
                 grid = np.arange(start, end+.001, 1000/spec.fps)
                 index = np.searchsorted(times, grid, side='right').clip(1, len(times)-1)
                 weight = ((grid-times[index-1])/(times[index]-times[index-1])).astype(np.float32)
@@ -198,7 +200,14 @@ class Pipeline:
                     output = self.cache.get(key)
                     if output is None:
                         indices, mix = index[offset:offset+n+1], weight[offset:offset+n+1, None, None, None]
-                        frames = reduced[indices-1].astype(np.float32)*(1-mix)+reduced[indices].astype(np.float32)*mix
+                        # Completed chunks already have cached outputs. Resize only
+                        # the real source frames needed for this new/tail chunk.
+                        needed = np.unique(np.concatenate((indices-1, indices)))
+                        reduced = np.stack([cv2.resize(samples[i][1], (spec.size, spec.size),
+                                                      interpolation=cv2.INTER_AREA) for i in needed])
+                        before = reduced[np.searchsorted(needed, indices-1)].astype(np.float32)
+                        after = reduced[np.searchsorted(needed, indices)].astype(np.float32)
+                        frames = before*(1-mix)+after*mix
                         output = adapter.predict(frames)
                         if n == spec.chunk_frames:
                             self.cache[key] = output
@@ -215,10 +224,11 @@ class Pipeline:
             except Exception as exc:
                 errors.append({'model': spec.id, 'code': 'analysis_error', 'message': f'{type(exc).__name__}: {exc}'})
         hr, hr_audit = fuse(candidates, 'hr')
-        explain_failure('hr', hr, candidates, errors, self.models)
+        capture = job['state'].get('capture', {})
+        explain_failure('hr', hr, candidates, errors, self.models, capture)
         if rr_due:
             rr, rr_audit = fuse(candidates, 'rr')
-            explain_failure('rr', rr, candidates, errors, self.models)
+            explain_failure('rr', rr, candidates, errors, self.models, capture)
             self.last_rr = (rr, rr_audit)
             self.last_rr_end = acquisition_end
         elif self.last_rr is not None:
@@ -243,6 +253,6 @@ class Pipeline:
                 'wave': best['wave'] if best else [], 'respWave': self.last_rr_wave,
                 'candidates': [{k: v for k, v in c.items() if k != 'wave'} for c in candidates],
                 'audit': {'scene': scene, 'hr': hr_audit, 'rr': rr_audit},
-                'errors': errors, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
+                'errors': errors, 'capture': capture, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
                     'queueMs': round((started-job['queuedAt'])*1000, 1)},
                 'delayed': (time.perf_counter()-job['queuedAt'])*1000 > (5000 if rr_due else 2000)}

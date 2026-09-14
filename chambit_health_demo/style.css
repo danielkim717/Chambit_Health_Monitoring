@@ -148,5 +148,6 @@ button:disabled,select:disabled{opacity:.55;cursor:default}
 .timeline-caption{display:flex;justify-content:space-between;gap:12px;color:#617386;font-size:12px;line-height:1.5}.timeline-caption b{color:#2878ff;font-variant-numeric:tabular-nums}
 #hrDetails,#rrDetails{font-size:13px;line-height:1.65;color:#58687c;word-break:keep-all;margin:8px 0 0}#hrDetails:empty,#rrDetails:empty{display:none}
 .measurement-diagnostics summary{font-size:12px;color:#63758a;cursor:pointer}
+.capture-notice{padding:12px 16px;border:1px solid #f0dab0;background:#fff8e9;color:#7d5a18;border-radius:12px;font-size:13px;line-height:1.6;word-break:keep-all}
 @media(max-width:620px){.measurement-timeline{padding:18px 16px 14px}.timeline-heading{font-size:13px}.timeline-caption{font-size:11px}#timelineMessage{font-size:12px;min-height:3em;margin-bottom:14px}.timeline-milestones b{font-size:11px}.timeline-milestones span{font-size:10px}.timeline-route{margin:0 6px}.timeline-heading strong{max-width:65%;word-break:keep-all}}
 @media(prefers-reduced-motion:reduce){.timeline-track>div,.timeline-milestones i{transition:none}.scan-line,.pulse-ring{animation:none!important}}

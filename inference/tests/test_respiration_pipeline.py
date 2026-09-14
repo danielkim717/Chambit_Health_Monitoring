@@ -90,3 +90,27 @@ def test_heart_preview_at_twenty_seconds_without_early_respiration(pipeline):
     result = pipeline.run(job(20))
     assert result['hr'] == pytest.approx(72, abs=1)
     assert result['rr'] is None and result['metrics']['rr']['status'] == 'collecting'
+
+
+def test_completed_model_chunks_do_not_resize_old_video_again(pipeline, monkeypatch):
+    import cv2
+    pipeline.run(job(36))
+    original = cv2.resize
+    resized = []
+    def track(image, *args, **kwargs):
+        resized.append(1)
+        return original(image, *args, **kwargs)
+    monkeypatch.setattr(cv2, 'resize', track)
+    result = pipeline.run(job(38))
+    assert len(resized) <= 64  # Only the two-second tail, not all 1,141 frames.
+    assert result['rr'] == pytest.approx(15, abs=1)
+
+
+def test_client_diagnostics_explain_slow_processing_but_cannot_validate_low_fps(pipeline):
+    request = job(60, fps=20, final=True)
+    request['state']['capture'] = {'cameraFps': 30, 'processedFps': 20, 'pendingReplaced': 20}
+    result = pipeline.run(request)
+    assert result['hr'] is None and result['rr'] is None
+    assert result['metrics']['rr']['reasonCode'] == 'processing_slow'
+    assert '앱의 영상 처리' in result['rrReason']
+    assert result['capture']['cameraFps'] == 30

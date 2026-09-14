@@ -143,8 +143,10 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
   await expect(page.locator('#timelineTrack')).toHaveAttribute('aria-valuenow','20');
   send('state',{state:{phase:'collecting',revision:0,preparedMs:5000,collectedMs:35000,
-    elapsedMs:40000,fps:30,droppedFrames:0,reason:'호흡 분석'}});
+    elapsedMs:40000,fps:20,droppedFrames:0,reason:'호흡 분석',
+    capture:{processedFrames:60,cameraFps:30,processedFps:20,extractionMeanMs:45,pendingReplaced:15}}});
   await expect(page.locator('#rrState')).toHaveText('호흡 분석 중');
+  await expect(page.locator('#captureNotice')).toContainText('앱의 처리 속도');
   await expect(page.locator('#timelineRr')).toHaveClass(/is-reached/);
   send('analysis',{result:measurement(16,null),final:false});
   await expect(page.locator('#rrValue')).toHaveText('16');
@@ -155,6 +157,7 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#timelineEnd')).toHaveClass(/is-reached/);
   await page.locator('#measureBtn').click();
   await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
+  await expect(page.locator('#captureNotice')).toBeHidden();
 });
 
 test('measurement controls fit desktop and narrow screens',async({page},testInfo)=>{

@@ -1,5 +1,6 @@
 import { CONFIG } from './measurement-config.mjs';
 import { MeasurementSession } from './measurement-session.mjs';
+import { FramePump, CaptureStats } from './frame-pump.mjs';
 
 export class MeasurementController {
   constructor(video, onEvent) {
@@ -13,7 +14,7 @@ export class MeasurementController {
     this.cameraPending=true;const ticket=++this.cameraGeneration;
     let opened,cameraTimeout;
     try {
-      const request=navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30},facingMode:'user'},audio:false});
+      const request=navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:30},facingMode:'user'},audio:false});
       request.then(stream=>{if(ticket!==this.cameraGeneration)stream.getTracks().forEach(t=>t.stop());},()=>{});
       opened=await Promise.race([request,new Promise((_,reject)=>{
         cameraTimeout=setTimeout(()=>reject(new Error('카메라 연결 시간이 초과되었습니다. 권한과 장치 상태를 확인하세요.')),20000);
@@ -40,6 +41,7 @@ export class MeasurementController {
   stop(reason='측정을 취소했습니다.') {
     const wasActive=this.active;this.active=false;this.generation++;
     clearInterval(this.timer);clearTimeout(this.modelTimer);
+    this.framePump?.close();this.framePump=null;
     this.worker?.terminate();this.worker=null;
     if(this.socket){this.socket.onclose=null;this.socket.onerror=null;this.socket.close();this.socket=null;}
     this.captureComplete=false;
@@ -47,7 +49,7 @@ export class MeasurementController {
       if(this.video.cancelVideoFrameCallback)this.video.cancelVideoFrameCallback(this.frameRequest);
       else cancelAnimationFrame(this.frameRequest);
     }
-    this.frameRequest=null;this.busy=false;this.demoSession?.cancel();this.demoSession=null;
+    this.frameRequest=null;this.demoSession?.cancel();this.demoSession=null;
     if(wasActive)this.onEvent({type:'cancelled',reason});
   }
   async start(mode='real') {
@@ -64,7 +66,13 @@ export class MeasurementController {
       if(ticket!==this.generation)return;
       this.onEvent({type:'health',status});
       this.sessionId=null;this.revision=0;this.sequence=0;this.skipped=0;
+      this.captureStats=new CaptureStats(this.stream.getVideoTracks()[0].getSettings?.().frameRate || 0);
       this.worker=new Worker(new URL('./measurement-worker.js',import.meta.url));
+      this.framePump=new FramePump(frame=>{
+        if(ticket!==this.generation || !this.worker){frame.bitmap.close();return;}
+        try{this.worker.postMessage({type:'frame',...frame},[frame.bitmap]);}
+        catch{frame.bitmap.close();fail('영상 프레임을 분석기로 전달하지 못했습니다. 다시 측정해 주세요.');}
+      });
       this.worker.onerror=()=>fail('얼굴 분석 파일을 불러오지 못했습니다. 로컬 모델 설치와 브라우저 지원을 확인해 주세요.');
       this.modelTimer=setTimeout(()=>fail('얼굴 모델 준비 시간이 초과되었습니다. 페이지를 새로고침해 주세요.'),20000);
       this.worker.onmessage=({data})=>{
@@ -93,9 +101,10 @@ export class MeasurementController {
             } else if(message.type==='state'){
               if(message.sessionId!==this.sessionId)return;
               if(message.state.revision!==this.revision){
-                this.revision=message.state.revision;this.onEvent({type:'reset'});
+                this.revision=message.state.revision;this.framePump?.clearPending();this.onEvent({type:'reset'});
               }
               this.captureComplete=message.state.phase==='complete';
+              if(this.captureComplete)this.framePump?.clearPending();
               this.onEvent(message);
               if(message.state.phase==='timeout')fail(message.state.reason);
             } else if(message.type==='analysis'){
@@ -105,41 +114,48 @@ export class MeasurementController {
             } else if(message.type==='error' || message.type==='timeout')fail(message.message || message.reason);
           };
         } else if(data.type==='sample'){
+          if(data.revision!==undefined && data.revision!==this.revision)return;
+          this.captureStats.result(data.t,Boolean(data.rgb),data.extractionMs);
           this.onEvent({type:'regions',polygons:data.polygons});
           if(!this.sessionId || this.socket?.readyState!==WebSocket.OPEN || this.captureComplete)return;
           const seq=this.sequence++;
-          if(this.socket.bufferedAmount>256*1024){this.skipped++;return;}
+          if(this.socket.bufferedAmount>256*1024){this.skipped++;this.captureStats.transportDropped++;return;}
           const header=new TextEncoder().encode(JSON.stringify({sessionId:this.sessionId,revision:this.revision,
-            seq,t:data.t,rgb:data.rgb || null,reason:data.reason,scene:data.scene || {},extractionMs:data.extractionMs}));
+            seq,t:data.t,rgb:data.rgb || null,reason:data.reason,scene:data.scene || {},extractionMs:data.extractionMs,
+            capture:this.captureStats.snapshot(this.framePump?.replaced || 0)}));
           const pixels=data.pixels || new Uint8Array();
           const packet=new Uint8Array(4+header.length+pixels.length);
           new DataView(packet.buffer).setUint32(0,header.length,true);packet.set(header,4);packet.set(pixels,4+header.length);
           this.socket.send(packet);
-        } else if(data.type==='frameDone')this.busy=false;
+        } else if(data.type==='frameDone')this.framePump?.done();
         else if(data.type==='error')fail(`얼굴 분석을 실행하지 못했습니다: ${data.message}`);
       };
       this.worker.postMessage({type:'init'});
     } catch(error){fail(error.message);}
   }
   capture(ticket) {
-    let lastMediaTime=-1,mediaOffset=null,lastSent=-Infinity;
+    let lastMediaTime=-1,mediaOffset=null,bitmapPending=false;
     const schedule=()=>{
       if(!this.active || ticket!==this.generation)return;
       this.frameRequest=this.video.requestVideoFrameCallback ? this.video.requestVideoFrameCallback(frame) : requestAnimationFrame(frame);
     };
     const frame=async (now,metadata)=>{
       schedule();
-      if(this.busy || this.captureComplete || !this.active || ticket!==this.generation || this.video.readyState<2)return;
+      if(this.captureComplete || !this.active || ticket!==this.generation || this.video.readyState<2)return;
       const mediaTime=metadata?.mediaTime ?? this.video.currentTime;
-      if(mediaTime===lastMediaTime || mediaTime-lastSent<1/CONFIG.targetFps-.003)return;
-      lastSent=mediaTime;
+      if(!Number.isFinite(mediaTime) || mediaTime<=lastMediaTime)return;
       mediaOffset ??= now-mediaTime*1000;
-      lastMediaTime=mediaTime;this.busy=true;
+      lastMediaTime=mediaTime;
+      const t=mediaOffset+mediaTime*1000,revision=this.revision;
+      this.captureStats.observe(t,metadata?.presentedFrames);
+      if(bitmapPending){this.captureStats.bitmapDropped++;return;}
+      bitmapPending=true;
       try {
         const bitmap=await createImageBitmap(this.video);
-        if(ticket!==this.generation || !this.worker){bitmap.close();return;}
-        this.worker.postMessage({type:'frame',bitmap,t:mediaOffset+mediaTime*1000},[bitmap]);
+        if(ticket!==this.generation || revision!==this.revision || this.captureComplete || !this.framePump){bitmap.close();return;}
+        this.framePump.push({bitmap,t,revision});
       } catch(error){if(ticket===this.generation){this.stop();this.onEvent({type:'error',message:`영상 프레임을 읽지 못했습니다: ${error.message}`});}}
+      finally {bitmapPending=false;}
     };
     schedule();
   }

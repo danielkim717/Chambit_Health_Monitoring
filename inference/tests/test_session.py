@@ -55,3 +55,18 @@ def test_flat_frames_reject_baselines_and_learned_path():
     for i in range(1801):feed(s,i*1000/30)
     result=Pipeline([]).run(s.job(final=True))
     assert result['hr'] is None and result['rr'] is None
+
+
+@pytest.mark.parametrize('capture', [{'cameraFps':float('nan')}, {'cameraFps':True},
+                                   {'cameraFps':-1}, {'image':'not allowed'}, []])
+def test_capture_diagnostics_are_bounded_numeric_metadata_even_without_a_face(capture):
+    h=json.dumps({'t':1,'seq':0,'revision':0,'rgb':None,'capture':capture}).encode()
+    with pytest.raises(ValueError):decode_frame(struct.pack('<I',len(h))+h)
+
+
+def test_capture_statistics_reach_state_and_reset_with_revision():
+    s=Measurement(0,prepare_ms=0)
+    s.feed({'t':0,'seq':0,'rgb':[120,100,80],'capture':{'cameraFps':30,'processedFps':25}},PIXELS)
+    assert s.state(0)['capture']['processedFps']==25
+    s.reset('new interval')
+    assert s.state(0)['capture']=={}
