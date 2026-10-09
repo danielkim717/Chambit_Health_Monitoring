@@ -1,3 +1,6 @@
+// 파일 역할: MediaPipe 실행 자산 준비
+// 연결과 사용: 브라우저에서 사용할 모델과 런타임 파일을 준비합니다. 자산 출처는 assets/NOTICE.md에 있습니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
