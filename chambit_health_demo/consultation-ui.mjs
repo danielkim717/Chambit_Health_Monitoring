@@ -1,3 +1,6 @@
+// 파일 역할: 문진 질문 답변과 동의 화면
+// 연결과 사용: 서버에 질문·응답을 전달하고 정리 결과를 표시합니다. 외부 LLM 사용 동의를 연결합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 const el=id=>document.getElementById(id);
 async function post(path,body,signal){
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
