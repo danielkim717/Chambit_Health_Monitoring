@@ -1,3 +1,6 @@
+// 파일 역할: 측정 결과와 실패 안내 화면 표시
+// 연결과 사용: 수치·품질·분석 상세·재측정·분석 JSON 저장을 관리합니다. 실패 후보를 유효한 측정값으로 바꾸지 않습니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 import { MeasurementController } from './measurement-controller.mjs';
 import { measurementTimeline } from './measurement-timeline.mjs';
