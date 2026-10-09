@@ -1,3 +1,6 @@
+// 파일 역할: 카메라 프레임 전달과 처리 속도 기록
+// 연결과 사용: 처리 중 프레임 하나와 최신 대기 프레임 하나를 관리하고 수집 통계를 계산합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 // One frame in the Worker and at most one newer, real camera frame waiting.
 // Capture timestamps are never changed and no frame is duplicated.
 export class FramePump {
