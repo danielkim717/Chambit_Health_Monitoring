@@ -1,3 +1,6 @@
+// 파일 역할: 측정 진행 시간과 분석 시작점 계산
+// 연결과 사용: 수집 시간에 맞춰 심박 20초·호흡 35초·완료 60초 안내와 진행 상태를 계산합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 
 // Advance only with accepted capture time, never with an independent UI timer.
