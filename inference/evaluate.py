@@ -1,3 +1,6 @@
+# 파일 역할: 기준값 대비 오차와 측정 성공률 집계
+# 연결과 사용: 시도별 기준 심박·호흡과 추정값 CSV를 읽습니다. 실패 시도도 성공률의 분모에 포함합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Evaluate synchronized attempts, including failed attempts in coverage.
 
 CSV columns: participant,attempt,condition,reference_hr,hr,reference_rr,rr
