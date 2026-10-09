@@ -1,3 +1,6 @@
+# 파일 역할: 추론 서버 API와 측정 세션 관리
+# 연결과 사용: FastAPI 요청과 WebSocket 프레임을 받아 Pipeline과 문진을 연결하고 결과 ID를 관리합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Loopback-only FastAPI service; one camera measurement at a time."""
 import asyncio
 from collections import OrderedDict
