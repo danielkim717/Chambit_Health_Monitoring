@@ -1,3 +1,6 @@
+// 파일 역할: 브라우저 신호 분석 보조 함수
+// 연결과 사용: 보간·CHROM·필터·주기 후보 계산과 합성 신호 테스트에 사용합니다. 현재 최종값의 주 경로는 Python 서버입니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
