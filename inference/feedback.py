@@ -1,3 +1,6 @@
+# 파일 역할: 측정 실패 이유를 사용자 설명으로 변환
+# 연결과 사용: 프레임 속도·신호 부족·모델 상태 등 판정 근거를 화면에 전달할 문구로 정리합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """User-facing measurement feedback, separate from model diagnostics."""
 
 def explain_failure(metric, result, candidates, errors, models, capture=None):
