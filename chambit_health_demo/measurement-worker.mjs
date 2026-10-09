@@ -1,3 +1,6 @@
+// 파일 역할: 얼굴 검출과 ROI 픽셀 추출
+// 연결과 사용: MediaPipe로 얼굴과 이마·볼 영역을 찾고 자세·움직임·노출을 검사해 RGB 입력을 전달합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { FaceLandmarker, FilesetResolver } from './assets/mediapipe/vision_bundle.mjs';
 import { CONFIG } from './measurement-config.mjs';
 
