@@ -1,3 +1,6 @@
+# 파일 역할: 측정 상태와 모델 분석 흐름 관리
+# 연결과 사용: 준비·수집·완료 상태, 프레임 버퍼, 분석 구간, 모델 후보와 최종값을 관리합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Per-measurement state and a bounded, incremental inference pipeline."""
 from collections import deque
 from dataclasses import dataclass, field
