@@ -1,3 +1,6 @@
+# 파일 역할: 모델 추론 시간 확인
+# 연결과 사용: 설치된 모델의 처리 시간을 점검합니다. 실제 사람의 심박·호흡 정확도 검증은 아닙니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Synthetic ROI throughput benchmark. Not physiological accuracy evidence."""
 import argparse
 import json
