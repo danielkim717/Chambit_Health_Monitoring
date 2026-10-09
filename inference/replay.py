@@ -1,3 +1,6 @@
+# 파일 역할: 저장 영상으로 측정 흐름 재생
+# 연결과 사용: 로컬 영상을 처리해 분석 JSON을 만듭니다. OpenCV 얼굴 검출을 사용하므로 브라우저 MediaPipe와 구분합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Offline real-model video benchmark. Not a camera or accuracy substitute.
 
 The CLI uses OpenCV Haar for crop acquisition; browser uses MediaPipe landmarks.
