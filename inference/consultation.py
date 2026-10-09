@@ -1,3 +1,6 @@
+# 파일 역할: 한국어 문진과 선택형 LLM 정리
+# 연결과 사용: 서버의 측정 결과와 답변을 바탕으로 질문을 진행하고 승인된 사실만 정리합니다. 새로운 측정값을 만들지 않습니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Bounded Korean interview. LLMs can organize approved facts, never invent vitals."""
 import asyncio
 from dataclasses import dataclass, field
