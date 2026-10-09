@@ -1,3 +1,6 @@
+# 파일 역할: 학습 모델 로딩과 실행 방식 통일
+# 연결과 사용: 공식 가중치의 출처·체크섬을 확인하고 EfficientPhys·MTTS-CAN 실행을 연결합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Versioned model adapters; native inference and optional ONNX execution.
 
 MTTS-CAN is an inference-only PyTorch translation of Xin Liu's MIT implementation.
