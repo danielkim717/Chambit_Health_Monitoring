@@ -1,3 +1,6 @@
+// 파일 역할: 페이지 이동과 병원 안내 연결
+// 연결과 사용: 측정·문진 화면을 연결하고 지도·주변 병원·이력 표시를 관리합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { mountMeasurement } from './measurement-ui.mjs';
 import { mountConsultation } from './consultation-ui.mjs';
 
