@@ -6,6 +6,19 @@
 
 카메라 추정값과 문진은 의료 진단이 아닙니다. 신호 부족·후보 충돌 시 수치를 확정하지 않습니다.
 
+## 무엇을 만들었나요?
+
+카메라 수집부터 신호 추정, 품질 확인, 결과 설명과 문진까지 연결한 로컬 웹 데모입니다. 모델 하나의 출력만 보여 주는 대신, 영상이 끊기거나 서로 다른 후보가 충돌할 때 결과를 보류하고 이유를 안내하는 흐름을 구현했습니다.
+
+| 단계 | 입력과 처리 | 담당 파일 |
+|---|---|---|
+| 얼굴 영상 수집 | 카메라 프레임에서 얼굴 영역과 RGB 정보 추출 | `measurement-controller.mjs`, `measurement-worker.mjs` |
+| 맥파·호흡 후보 | 학습 모델과 CHROM·POS 등으로 파형 생성 | `inference/models.py`, `inference/pipeline.py` |
+| 품질과 결과 판정 | 신호 반복성·충돌·수집 조건 확인, 실패 이유 설명 | `inference/signals.py`, `inference/feedback.py` |
+| 화면과 문진 | 측정값·수집 근거 표시, 한국어 질문과 답변 정리 | `measurement-ui.mjs`, `inference/consultation.py` |
+
+[전체 파일 설명](docs/FILE_GUIDE.md) · [구조와 데이터 흐름](docs/ARCHITECTURE.md) · [웹 화면 코드](chambit_health_demo/README.md) · [추론 서버 코드](inference/README.md) · [기존 검증 기록](chambit_health_demo/VALIDATION.md)
+
 ## 실행
 
 Python 3.11–3.13, Node.js 22 이상을 사용합니다. 저장소 루트에서 실행하세요.
