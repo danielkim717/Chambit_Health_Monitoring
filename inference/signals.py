@@ -1,3 +1,6 @@
+# 파일 역할: 맥파 호흡 신호의 품질 판정과 후보 결합
+# 연결과 사용: CHROM·POS, 필터·주파수·반복성 검사, 호흡 보조 후보, 충돌하지 않는 후보 선정을 처리합니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Numerical physiology evidence. Scores are engineering SQI, not probabilities."""
 import numpy as np
 from scipy import signal
