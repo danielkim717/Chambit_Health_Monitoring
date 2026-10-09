@@ -1,3 +1,6 @@
+# 파일 역할: ONNX 내보내기와 출력 일치 확인
+# 연결과 사용: 학습 모델을 ONNX로 변환하고 파형 차이를 비교합니다. 젯슨 실기기 성능 측정과는 별도입니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Export native adapters and verify ONNX waveform parity on the current PC."""
 import argparse
 import json
