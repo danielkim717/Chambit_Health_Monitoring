@@ -1,3 +1,6 @@
+# 파일 역할: 공식 모델 코드와 가중치 준비
+# 연결과 사용: models.lock.json에 지정된 출처와 체크섬으로 필요한 모델 파일을 내려받습니다.
+# 파일 안내: docs/FILE_GUIDE.md
 """Fetch official model artifacts, pin revisions and verify every subsequent download.
 
 Run from the repository root: python -m inference.setup_models
