@@ -1,3 +1,6 @@
+// 파일 역할: 웹 파일 제공과 로컬 API 중계
+// 연결과 사용: 정적 화면, 같은 출처 요청, WebSocket과 Python 서버 연결, 선택형 지도 요청을 처리합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
