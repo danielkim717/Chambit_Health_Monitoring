@@ -1,3 +1,6 @@
+// 파일 역할: 브라우저 측정 상태 전환
+// 연결과 사용: 준비·수집·시간 초과 등 시각 기반 상태를 관리합니다. 최종 측정 결과는 서버 응답을 따릅니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 
 // A deterministic state machine; all times are monotonic milliseconds.
