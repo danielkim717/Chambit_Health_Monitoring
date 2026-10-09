@@ -1,3 +1,6 @@
+// 파일 역할: 카메라 Worker 서버 통신 연결
+// 연결과 사용: 카메라 수집, Worker 얼굴 처리, WebSocket 전송, 취소와 서버 결과 수신을 관리합니다.
+// 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 import { MeasurementSession } from './measurement-session.mjs';
 import { FramePump, CaptureStats } from './frame-pump.mjs';
