@@ -94,6 +94,8 @@
 
 | 파일 | 역할 |
 |---|---|
+| [docs/PROJECT_STATUS.md](PROJECT_STATUS.md) | 구현 현황, 미완료 과제, 우선순위와 완료 조건 |
+| [docs/REPOSITORY_GUIDE.md](REPOSITORY_GUIDE.md) | 새 저장소 복제, 복구, 개인 자료 제외 및 수정 후 업데이트 |
 | [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) | 카메라에서 측정·문진까지 연결되는 구조와 정보 흐름 |
 | [docs/FILE_GUIDE.md](../docs/FILE_GUIDE.md) | 모든 파일을 역할별로 찾는 이 문서 |
 | [docs/DOCUMENTATION_CHECKS.md](../docs/DOCUMENTATION_CHECKS.md) | 이번 설명 보완의 범위와 확인 결과 |

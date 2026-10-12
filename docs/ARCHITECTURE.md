@@ -41,3 +41,47 @@ flowchart TD
 기존 자동 검사는 수집 상태·신호 후보·모델 출력·문진·UI의 동작을 다룹니다. 실제 기준 장치와 동시 측정한 정확도, 젯슨 실기기 성능, 로컬 LLM 성능은 별도 검증이 필요합니다. 이번 문서 보완에서 해당 성능을 새로 측정하지 않았습니다.
 
 [파일별 역할](FILE_GUIDE.md) · [기존 검증 기록](../chambit_health_demo/VALIDATION.md)
+
+## 코드 위치
+
+| 파일 | 책임 |
+|---|---|
+| `chambit_health_demo/index.html`, `style.css` | 화면과 레이아웃 |
+| `measurement-controller.mjs` | 카메라·Worker·WebSocket 생명주기, 취소·재측정 |
+| `measurement-worker.mjs` | 얼굴 추적, 얼굴 영역과 색 신호 추출 |
+| `frame-pump.mjs` | 실제 프레임 대기 관리, 수신·처리 속도 계측 |
+| `measurement-ui.mjs`, `measurement-timeline.mjs` | 값·파형·진행 막대·분석 파일 저장 |
+| `consultation-ui.mjs` | 문진 화면과 서버 요청 |
+| `server.js`, `dev.mjs` | 정적 파일·API 중계, 웹·추론 서버 동시 실행 |
+| `inference/app.py` | FastAPI, 측정 세션, 결과 ID, 문진 API |
+| `inference/pipeline.py` | 시간 구간 관리, 추론 스케줄, 모델 출력 통합 |
+| `inference/models.py` | 모델 어댑터, 가중치 검증, PyTorch·ONNX 실행 |
+| `inference/signals.py`, `feedback.py` | 수치 계산·후보 검증과 사용자용 실패 설명 |
+| `inference/consultation.py` | 질문 흐름, 고정 안내, 선택형 LLM 연동 |
+| `inference/replay.py`, `evaluate.py`, `benchmark.py` | 영상 재생, 오차 평가, 합성 입력 성능 검사 |
+| `inference/export_models.py` | ONNX 변환과 출력 비교 |
+
+첫 행을 제외한 프런트엔드 파일은 모두 `chambit_health_demo/` 아래에 있습니다.
+
+## 측정 규칙
+
+- 준비 5초 후 수집 60초, 최대 시도 120초입니다.
+- 심박 분석은 수집 20초부터 2초 간격, 호흡 분석은 35초부터 5초 간격입니다.
+  분석 시작 시점은 수치 표시를 보장하지 않습니다.
+- 실제 촬영 시각을 유지합니다. 긴 공백이나 얼굴 이탈로 구간이 초기화되면 이전 결과를 폐기합니다.
+- 학습 모델 입력 조건은 실제 24fps 이상과 최대 100ms 프레임 간격입니다.
+- 추론은 실행 중 하나와 대기 중 최신 하나로 제한하고 완료된 모델 구간을 캐시합니다.
+- HR/RR은 독립적으로 성공·실패합니다. 서로 다른 지표나 호환되지 않는 후보를 평균하지 않습니다.
+- 실패 시 데모 수치로 자동 전환하지 않습니다. 가상 데이터는 명시적으로 선택해야 합니다.
+
+## 데이터 보관과 신뢰 경계
+
+얼굴 ROI는 로컬 메모리에서 처리하고 자동으로 파일에 저장하지 않습니다. 서버의 측정·문진
+결과는 30분 후 만료되며 각각 최대 100개 세션을 유지합니다. 사용자가 내려받은 수치·파형
+분석 파일은 기기에 남고, 얼굴 영상·ROI 픽셀·문진 답변은 포함하지 않습니다.
+
+문진은 화면 문자열이나 클라이언트가 만든 생체 수치 대신 서버의 확정 결과 ID를 참조합니다.
+외부 LLM은 사용자가 전송에 동의했을 때만 정리할 정보를 받습니다. 영상은 전송하지 않고,
+키는 서버에 보관합니다. 잘못된 응답이나 15초 시간 초과 시 규칙 문진으로 진행합니다.
+
+자세한 모델 출처와 전처리 차이는 [모델 안내](../inference/NOTICE.md)를 참고합니다.

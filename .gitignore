@@ -16,3 +16,7 @@ inference/artifacts/
 .env
 .publish/
 measurement-analysis-*.json
+
+# Local outputs and unrelated personal portfolio work are not project sources.
+/artifacts/
+/portfolio_revision/
