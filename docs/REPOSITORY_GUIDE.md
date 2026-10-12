@@ -2,13 +2,18 @@
 
 새 저장소: [danielkim717/Chambit_Health_Monitoring](https://github.com/danielkim717/Chambit_Health_Monitoring)
 
+2026-10-12에 Monitoring을 공개 저장소로 전환했습니다. 이후 개발과 업데이트는 Monitoring을 기준으로 합니다.
+GitHub Topics에는 `computer-vision`, `rppg`, `remote-photoplethysmography`, `heart-rate`,
+`respiratory-rate`, `health-monitoring`, `webcam`, `pytorch`, `fastapi`, `mediapipe`를 등록했습니다.
+
 기존 `Chambit_Health_Interview`는 2026-10-12 확인 시 비공개 저장소로 존재했습니다.
 새 저장소는 해당 저장소의 최신 이력과 현재 작업 내용을 함께 보존합니다.
 
 ## 다른 PC에서 복구
 
-GitHub의 저장소 **Code → HTTPS** 주소로 새 폴더에 복제합니다. 비공개 저장소는 해당 계정의
-접근 권한이 필요합니다. 복제 후 [README](../README.md)의 설치·실행 절차를 따릅니다.
+GitHub의 저장소 **Code → HTTPS** 주소로 새 폴더에 복제합니다. 공개 저장소이므로 로그인 없이
+복제할 수 있으며, 변경 내용을 푸시하려면 쓰기 권한이 필요합니다.
+복제 후 [README](../README.md)의 설치·실행 절차를 따릅니다.
 
 ```powershell
 git clone https://github.com/danielkim717/Chambit_Health_Monitoring.git
