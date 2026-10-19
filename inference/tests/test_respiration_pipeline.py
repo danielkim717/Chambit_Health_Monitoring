@@ -145,3 +145,23 @@ def test_client_diagnostics_explain_slow_processing_but_cannot_validate_low_fps(
     assert result['metrics']['rr']['reasonCode'] == 'processing_slow'
     assert '앱의 영상 처리' in result['rrReason']
     assert result['capture']['cameraFps'] == 30
+
+
+def test_weak_rr_is_partial_and_strict_mode_can_restore_original_rejection(pipeline):
+    times = np.arange(1801)/30
+    # Include the leading boundary sample consumed by temporal differencing.
+    output_times = times[:-1]
+    output = np.sin(2*np.pi*.25*output_times)+np.random.default_rng(2).normal(size=len(output_times))*7
+    weak = np.r_[output[0], output]
+    def predict(frames):
+        t = frames[:, 0, 0, 0]
+        return {'hr': np.diff(np.sin(2*np.pi*1.2*t)),
+                'rr': np.diff(np.interp(t, times, weak))}
+    pipeline.models[0].predict = predict
+    result = pipeline.run(job(60, final=True))
+    assert result['metrics']['hr']['status'] == 'valid'
+    assert result['metrics']['rr']['status'] == 'tentative'
+    assert result['quality'] == 'partial' and result['rr'] is not None
+    pipeline.quality_mode = 'strict'
+    strict = pipeline.run(job(60, revision=1, final=True))
+    assert strict['rr'] is None

@@ -46,6 +46,52 @@ def c(id,value,quality=.9,metric='hr',**kwargs):
     return dict(id=id,model=id,family=id,metric=metric,value=value,quality=quality,
                 status='valid',startMs=0,endMs=60000,features={},**kwargs)
 
+
+def test_balanced_respiration_is_tentative_and_keeps_strict_failure_evidence():
+    t = np.arange(1800)/30
+    wave = np.sin(2*np.pi*.25*t)+np.random.default_rng(2).normal(size=len(t))*7
+    strict = candidate('test', 'rr', wave, 30, 0, 60000)
+    relaxed = candidate('test', 'rr', wave, 30, 0, 60000, quality_mode='balanced')
+    assert strict['value'] is None
+    assert relaxed['status'] == 'tentative' and relaxed['value'] == pytest.approx(15, abs=1)
+    assert not relaxed['strictChecks']['periodicity']['passed']
+    assert relaxed['checks']['windowConsistency']['passed']
+    assert not relaxed['rejectionCodes']
+    result, _ = fuse([relaxed], 'rr')
+    assert result['status'] == 'tentative' and result['reason']
+
+
+def test_balanced_mode_keeps_hard_rejections_and_rate_drift():
+    from scipy.signal import chirp
+    t = np.arange(1800)/30
+    for wave in [np.zeros(1800), np.full(1800, np.nan),
+                 chirp(t, f0=.12, f1=.48, t1=60), np.sin(2*np.pi*.1*t)]:
+        assert candidate('test', 'rr', wave, 30, 0, 60000, quality_mode='balanced')['value'] is None
+    assert candidate('test', 'rr', np.sin(2*np.pi*.25*t[:600]), 30, 0, 20000,
+                     quality_mode='balanced')['value'] is None
+
+
+def test_relaxation_does_not_add_results_for_seeded_white_noise():
+    # Regression fixtures, not a claim that all real noise is rejected.
+    for seed in range(30):
+        wave = np.random.default_rng(seed).normal(size=1800)
+        for metric in ['hr', 'rr']:
+            strict = candidate('test', metric, wave, 30, 0, 60000)
+            relaxed = candidate('test', metric, wave, 30, 0, 60000, quality_mode='balanced')
+            assert relaxed['value'] == strict['value']
+
+
+def test_strict_candidates_take_priority_and_weak_conflicts_are_not_averaged():
+    weak = c('weak', 90, quality=.99)
+    weak['status'] = 'tentative'
+    result, audit = fuse([weak, c('strong', 72, quality=.6)], 'hr')
+    assert result['status'] == 'valid' and result['value'] == 72
+    assert audit['excludedTentative'] == ['weak']
+    other = c('other', 120, quality=.99)
+    other['status'] = 'tentative'
+    result, _ = fuse([weak, other], 'hr')
+    assert result['value'] is None and result['status'] == 'conflict'
+
 def test_conflict_does_not_average_mutually_exclusive_rates():
     result,audit=fuse([c('a',72),c('b',144)],'hr')
     assert result['value'] is None and result['status']=='conflict'

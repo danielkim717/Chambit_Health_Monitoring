@@ -2,7 +2,7 @@
 // 연결과 사용: MediaPipe로 얼굴과 이마·볼 영역을 찾고 자세·움직임·노출을 검사해 RGB 입력을 전달합니다.
 // 파일 안내: docs/FILE_GUIDE.md
 import { FaceLandmarker, FilesetResolver } from './assets/mediapipe/vision_bundle.mjs';
-import { CONFIG } from './measurement-config.mjs';
+import { CONFIG, excessiveFaceMotion, usableSkinExposure } from './measurement-config.mjs';
 
 let detector, surface, context, previousFace=null;
 const crop=new OffscreenCanvas(128,128), cropContext=crop.getContext('2d',{willReadFrequently:true});
@@ -28,7 +28,7 @@ function extract(bitmap,t) {
   if(width<0.2 || width>0.75 || polygons.flat().some(p=>p.x<0.02||p.x>0.98||p.y<0.02||p.y>0.98))return {t,polygons,reason:'얼굴 전체가 보이도록 거리를 조절해 주세요.'};
   const symmetry=Math.abs((center.x-face[234].x)-(face[454].x-center.x))/width;
   if(symmetry>0.4)return {t,polygons,reason:'고개를 돌리지 말고 카메라를 정면으로 바라봐 주세요.'};
-  if(prev && t-prev.t<CONFIG.maxGapMs && (Math.hypot(center.x-prev.x,center.y-prev.y)/width>0.035 || Math.abs(width-prev.width)/width>0.04))return {t,polygons,reason:'움직임이 큽니다. 얼굴을 고정해 주세요.'};
+  if(excessiveFaceMotion(prev,center,width,t))return {t,polygons,reason:'움직임이 큽니다. 얼굴을 고정해 주세요.'};
   const {data}=context.getImageData(0,0,w,h), colors=[], exposureFractions=[];
   for(const poly of polygons) {
     const points=poly.map(p=>({x:p.x*w,y:p.y*h}));
@@ -42,7 +42,7 @@ function extract(bitmap,t) {
       if(luma<30 || luma>220 || Math.max(rr,gg,bb)>=250)continue;
       accepted++;r+=rr;g+=gg;b+=bb;
     }
-    if(accepted<30 || accepted/Math.max(1,n)<0.75)return {t,polygons,reason:'빛이 너무 어둡거나 강합니다. 얼굴에 고르게 빛을 비춰 주세요.'};
+    if(!usableSkinExposure(accepted,n))return {t,polygons,reason:'빛이 너무 어둡거나 강합니다. 얼굴에 고르게 빛을 비춰 주세요.'};
     colors.push([r/accepted,g/accepted,b/accepted]);
     exposureFractions.push(accepted/n);
   }

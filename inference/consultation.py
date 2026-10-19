@@ -84,6 +84,8 @@ class Interview:
         for metric, label, unit in [('hr', '심박수', 'bpm'), ('rr', '호흡수', '회/분')]:
             value = self.result[metric]
             facts[metric] = f'{label}: 측정 불가' if value is None else f'{label} 추정값: {round(value)} {unit}'
+            if value is not None and self.result.get('metrics', {}).get(metric, {}).get('status') == 'tentative':
+                facts[metric] += ' · 신호 약함, 참고값이며 재측정이 필요합니다.'
         if self.result['mode'] == 'demo':
             facts['demo'] = '가상 데이터 데모입니다. 표시된 수치는 실제 측정값이 아닙니다.'
         if self.result['quality'] != 'good':

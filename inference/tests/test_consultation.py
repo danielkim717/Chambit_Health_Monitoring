@@ -9,6 +9,22 @@ from inference.consultation import Interview, organize_facts
 
 RESULT={'mode':'real','hr':72,'rr':None,'quality':'partial'}
 
+
+def test_weak_measurement_caution_survives_llm_omission(monkeypatch):
+    monkeypatch.setenv('LOCAL_LLM_BASE_URL','http://127.0.0.1:8080/v1')
+    monkeypatch.setenv('LOCAL_LLM_MODEL','test')
+    result={**RESULT,'rr':15,'metrics':{'hr':{'status':'valid'},'rr':{'status':'tentative'}}}
+    interview=Interview(result,'local')
+    for q in ['symptoms','onset','context','lifestyle']: interview.answer(q,'unknown')
+    assert interview.current()['id']=='quality'
+    def handler(request):
+        return httpx.Response(200,json={'choices':[{'message':{'content':'{"factIds":["limits"]}'}}]})
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            summary=await interview.summary(client)
+            assert any('호흡수' in s and '참고값' in s for s in summary['summary'])
+    asyncio.run(run())
+
 def test_unknown_is_not_risk_and_missing_respiration_adds_quality_question():
     interview=Interview(RESULT)
     for q in ['symptoms','onset','context','lifestyle']:interview.answer(q,'unknown')

@@ -11,11 +11,14 @@ def bandpass(x, fs, band):
     x = signal.detrend(np.asarray(x, dtype=float))
     return signal.sosfiltfilt(signal.butter(2, band, fs=fs, btype='bandpass', output='sos'), x)
 
-def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagnostics=False):
+def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagnostics=False, quality_mode='strict'):
+    if quality_mode not in ('strict', 'balanced'):
+        raise ValueError('Unknown signal quality mode')
     base = {'id': f'{model}:{metric}', 'model': model, 'metric': metric,
             'family': family or model, 'startMs': start, 'endMs': end,
             'value': None, 'quality': 0., 'status': 'insufficient', 'reason': '주기성이 부족합니다.',
-            'features': {}, 'checks': {}, 'rejectionCodes': [], 'wave': [], 'sampleRate': float(fs)}
+            'features': {}, 'checks': {}, 'rejectionCodes': [], 'wave': [], 'sampleRate': float(fs),
+            'qualityMode': quality_mode}
     wave = np.asarray(wave, dtype=float)
     minimum_seconds = 20 if metric == 'hr' else 35
     finite = bool(np.isfinite(wave).all())
@@ -74,6 +77,27 @@ def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagn
     base['rejectionCodes'] = [key for key, check in base['checks'].items() if not check['passed']]
     if not base['rejectionCodes']:
         base.update(value=float(freq*60), status='valid', reason='')
+    elif quality_mode == 'balanced' and base['checks']['bandInterior']['passed']:
+        # A weaker candidate is a visibly tentative result, never a strict pass.
+        # Reject rate drift by comparing disjoint halves with the whole window.
+        rates = []
+        for part in np.array_split(x, 2):
+            pf, pp = signal.periodogram(part, fs=fs, window='hann', nfft=max(8192, len(part)))
+            pm = (pf >= BANDS[metric][0]) & (pf <= BANDS[metric][1])
+            rates.append(float(pf[pm][np.argmax(pp[pm])]*60))
+        tolerance = 5 if metric == 'hr' else 3
+        spread = max(rates+[float(freq*60)])-min(rates+[float(freq*60)])
+        base['strictChecks'] = base['checks']
+        base['checks'] = {**base['checks'],
+            'concentration': {'passed': concentration >= .4, 'actual': concentration, 'minimum': .4},
+            'periodicity': {'passed': periodicity >= (.35 if metric == 'hr' else .2),
+                            'actual': periodicity, 'minimum': .35 if metric == 'hr' else .2},
+            'windowConsistency': {'passed': spread <= tolerance, 'halfRates': rates,
+                                  'spread': spread, 'maximum': tolerance}}
+        base['rejectionCodes'] = [key for key, check in base['checks'].items() if not check['passed']]
+        if not base['rejectionCodes']:
+            base.update(value=float(freq*60), status='tentative',
+                        reason='신호가 약해 참고용으로 표시합니다. 다시 측정해 비교해 주세요.')
     return base
 
 def chrom(rgb, fs):
@@ -121,7 +145,7 @@ def fuse(candidates, metric, proposal=None):
     unit = 'bpm' if metric == 'hr' else 'breaths/min'
     result = {'value': None, 'unit': unit, 'status': 'insufficient', 'reason': '유효한 후보가 없습니다.',
               'quality': None, 'sources': [], 'window': None}
-    valid = [c for c in candidates if c['metric'] == metric and c['status'] == 'valid'
+    valid = [c for c in candidates if c['metric'] == metric and c['status'] in ('valid', 'tentative')
              and c['value'] is not None and np.isfinite(c['value'])]
     audit = {'quality': [{'id': c['id'], 'features': c['features']} for c in candidates if c['metric']==metric],
              'debate': [], 'clusters': [], 'action': 'reject', 'selected': []}
@@ -130,6 +154,10 @@ def fuse(candidates, metric, proposal=None):
     # Restrict to one common acquisition interval, never combine different windows.
     latest = max((c['endMs'], c['startMs']) for c in valid)
     valid = [c for c in valid if (c['endMs'], c['startMs']) == latest]
+    strict = [c for c in valid if c['status'] == 'valid']
+    if strict:
+        audit['excludedTentative'] = [c['id'] for c in valid if c['status'] == 'tentative']
+        valid = strict
     # Different derivations from one parent waveform provide at most one candidate.
     unique = {}
     for c in valid:
@@ -166,7 +194,9 @@ def fuse(candidates, metric, proposal=None):
         audit['action'] = 'accept' if executable else 'repair'
     weights = np.array([max(c['quality'], .01) for c in selected])
     result.update(value=float(np.average([c['value'] for c in selected], weights=weights)),
-                  status='valid', reason='', quality=float(weights.max()),
+                  status='valid' if strict else 'tentative',
+                  reason='' if strict else '신호가 약해 참고용으로 표시합니다. 다시 측정해 비교해 주세요.',
+                  quality=float(weights.max()),
                   sources=[c['model'] for c in selected],
                   window={'startMs': latest[1], 'endMs': latest[0]})
     audit['selected'] = [c['id'] for c in selected]

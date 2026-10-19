@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { respirationDisplay, measurementAnalysisFile } from '../measurement-ui.mjs';
 
+test('weak respiration values remain explicitly tentative during and after measurement',()=>{
+  const result={rr:15,rrReason:'다시 측정해 비교해 주세요.',metrics:{rr:{status:'tentative'}}};
+  for(const final of [false,true]){
+    assert.equal(respirationDisplay(result,final,60000).state,'신호 약함 · 참고값');
+    assert.equal(respirationDisplay(result,final,60000).reason,result.rrReason);
+  }
+});
+
 test('analysis export keeps rejected evidence but excludes video and interview data',()=>{
   const result={mode:'real',hr:72,rr:null,signalDiagnostics:{'test:rr':{inputWave:[1,2,3]}},
     candidates:[{value:null,features:{spectralPeakRate:12}}],

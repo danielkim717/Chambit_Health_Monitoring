@@ -17,6 +17,8 @@ export function measurementAnalysisFile(result) {
 }
 
 export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
+  if(mode!=='demo' && result?.rr != null && result.metrics?.rr?.status==='tentative')
+    return {state:'신호 약함 · 참고값',reason:result.rrReason || '다시 측정해 비교해 주세요.'};
   if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:''};
   if(final)return {state:'측정 불가',reason:result?.rrReason || '호흡 신호가 부족합니다.'};
   if(mode==='demo')return {state:'신호 수집 중',reason:'가상 데이터'};
@@ -75,7 +77,9 @@ export function mountMeasurement({onReset,onContinue}) {
     el('hrValue').textContent=val(r.hr);el('rrValue').textContent=val(r.rr);
     el('hrState').textContent=r.hr===null?(final?'측정 불가':'신호 수집 중'):(mode==='demo'?'가상 데이터':final?'심박수 추정값':'중간 추정값');
     showRespirationState(r,final,r.durationMs || 0);
-    el('hrDetails').textContent=r.hr===null?(r.hrReason || ''):'';
+    const tentativeHr=mode!=='demo' && r.metrics?.hr?.status==='tentative';
+    if(tentativeHr)el('hrState').textContent='신호 약함 · 참고값';
+    el('hrDetails').textContent=r.hr===null || tentativeHr?(r.hrReason || ''):'';
     el('qualityDetails').textContent=r.delayed?'영상 분석이 평소보다 오래 걸리고 있습니다. 결과가 준비되면 표시합니다.':
       final?'수집을 마쳤습니다. 각 항목의 결과와 안내를 확인해 주세요.':'중간 추정값은 신호가 충분할 때 표시되며, 측정하는 동안 달라질 수 있습니다.';
     if(r.metrics){
@@ -88,9 +92,10 @@ export function mountMeasurement({onReset,onContinue}) {
     if(!final)return;
     for(const id of ['questionHr','finalHr'])el(id).textContent=r.hr===null?'측정 불가':val(r.hr);
     for(const id of ['questionRr','finalRr'])el(id).textContent=r.rr===null?'측정 불가':val(r.rr);
-    for(const id of ['questionMode','resultMode'])el(id).textContent=label();
-    el('finalHrState').textContent=r.hr===null?r.hrReason:'추정값 · 정상 여부 판정 안 함';
-    el('finalRrState').textContent=r.rr===null?r.rrReason:'추정값 · 정상 여부 판정 안 함';
+    const hasTentative=Object.values(r.metrics || {}).some(m=>m.status==='tentative');
+    for(const id of ['questionMode','resultMode'])el(id).textContent=label()+(hasTentative?' · 신호 약한 참고값 포함':'');
+    el('finalHrState').textContent=r.hr===null?r.hrReason:tentativeHr?'신호 약함 · 참고값 · 재측정 권장':'추정값 · 정상 여부 판정 안 함';
+    el('finalRrState').textContent=r.rr===null?r.rrReason:r.metrics?.rr?.status==='tentative'?'신호 약함 · 참고값 · 재측정 권장':'추정값 · 정상 여부 판정 안 함';
     el('resultMeasurementMeta').textContent=`${label()} · 수집 ${clock(r.durationMs)} · ${r.fps.toFixed(1)}fps`;
   }
   function showRespirationState(r,final,collectedMs) {
@@ -151,7 +156,18 @@ export function mountMeasurement({onReset,onContinue}) {
       showValues(event.result,event.final);
       if(event.final)drawTimeline({phase:'complete',collectedMs:event.result.durationMs},true);
       else if(!lastState.phase || lastState.collectedMs < event.result.durationMs)drawTimeline({phase:'collecting',collectedMs:event.result.durationMs});
-      if(event.final){result=event.result;el('downloadAnalysisBtn').disabled=mode!=='real' || !result.signalDiagnostics;buttons(false);el('measureStatus').textContent=result.hr===null && result.rr===null?'신호 부족':result.hr===null || result.rr===null?'부분 측정 완료':'측정 완료';el('continueBtn').hidden=false;el('measurementGuide').textContent=result.hr===null && result.rr===null?'측정 신호가 부족합니다. 재측정하거나 증상 문진을 진행할 수 있습니다.':'결과를 확인한 뒤 건강 문진으로 이동하세요.';}
+      if(event.final){
+        result=event.result;
+        const tentative=Object.values(result.metrics || {}).some(m=>m.status==='tentative');
+        el('downloadAnalysisBtn').disabled=mode!=='real' || !result.signalDiagnostics;buttons(false);
+        el('measureStatus').textContent=result.hr===null && result.rr===null?'신호 부족':
+          tentative?'측정 완료 · 참고값 포함':result.hr===null || result.rr===null?'부분 측정 완료':'측정 완료';
+        el('continueBtn').hidden=false;
+        el('measurementGuide').textContent=result.hr===null && result.rr===null?
+          '측정 신호가 부족합니다. 재측정하거나 증상 문진을 진행할 수 있습니다.':tentative?
+          '약한 신호에서 얻은 참고값이 포함됩니다. 다시 측정해 비교하거나 건강 문진으로 이동하세요.':
+          '결과를 확인한 뒤 건강 문진으로 이동하세요.';
+      }
     } else if(event.type==='error' || event.type==='cancelled') {
       buttons(false);
       if(event.type==='cancelled' && !event.reason)return;

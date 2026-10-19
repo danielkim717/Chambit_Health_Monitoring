@@ -4,6 +4,7 @@
 """Per-measurement state and a bounded, incremental inference pipeline."""
 from collections import deque
 from dataclasses import dataclass, field
+import os
 import time
 import uuid
 
@@ -130,6 +131,9 @@ class Measurement:
 class Pipeline:
     def __init__(self, models):
         self.models = models
+        self.quality_mode = os.getenv('SIGNAL_QUALITY_MODE', 'balanced')
+        if self.quality_mode not in ('strict', 'balanced'):
+            raise ValueError('SIGNAL_QUALITY_MODE must be strict or balanced')
         self.cache = {}
         self.generation = None
         self.last_rr = None
@@ -170,7 +174,8 @@ class Pipeline:
             rgb = np.column_stack([np.interp(grid, times, rgb[:, c]) for c in range(3)])
             for name, method in [('chrom', chrom), ('pos', pos)]:
                 wave = method(rgb, fs)
-                c = candidate(name, 'hr', wave, fs, start, end, include_diagnostics=job['final'])
+                c = candidate(name, 'hr', wave, fs, start, end, include_diagnostics=job['final'],
+                              quality_mode=self.quality_mode)
                 if job['final']:
                     c['signalDiagnostics']['inputMeaning'] = 'baseline_pulse_waveform'
                 candidates.append(c)
@@ -227,7 +232,7 @@ class Pipeline:
                     differences = np.concatenate(segments)
                     wave = np.cumsum(differences)
                     c = candidate(spec.id, metric, wave, spec.fps, start, end,
-                                  include_diagnostics=job['final'])
+                                  include_diagnostics=job['final'], quality_mode=self.quality_mode)
                     if job['final']:
                         c['signalDiagnostics'].update(inputMeaning='cumulative_model_temporal_difference',
                             modelDifferences=differences.tolist(), chunkFrames=spec.chunk_frames,
@@ -263,7 +268,7 @@ class Pipeline:
         elapsed = (time.perf_counter()-started)*1000
         return {'mode': 'real', 'hr': hr['value'], 'rr': rr['value'], 'hrReason': hr['reason'], 'rrReason': rr['reason'],
                 'metrics': {'hr': hr, 'rr': rr}, 'durationMs': acquisition_end-start, 'fps': fps,
-                'quality': 'good' if valid_hr and valid_rr else 'partial' if valid_hr or valid_rr else 'insufficient',
+                'quality': 'good' if hr['status'] == rr['status'] == 'valid' else 'partial' if valid_hr or valid_rr else 'insufficient',
                 'wave': best['wave'] if best else [], 'respWave': self.last_rr_wave,
                 'candidates': [{k: v for k, v in c.items() if k not in ('wave', 'signalDiagnostics')} for c in candidates],
                 **({'signalDiagnostics': {c['id']: c['signalDiagnostics'] for c in candidates

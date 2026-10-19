@@ -7,6 +7,17 @@ export const CONFIG = Object.freeze({
   maxAttemptMs: 120000, maxGapMs: 500, minFps: 15, targetFps: 30,
   heartBand: [0.7, 3], respirationBand: [0.1, 0.5],
   respirationAgreement: 3,
+  maxFaceTranslation: .05, maxFaceScaleChange: .06, minimumExposureFraction: .65,
   modelPath: '/assets/face_landmarker.task',
   wasmPath: '/assets/mediapipe/wasm',
 });
+
+export function excessiveFaceMotion(previous,current,width,t) {
+  return Boolean(previous && t-previous.t<CONFIG.maxGapMs &&
+    (Math.hypot(current.x-previous.x,current.y-previous.y)/width>CONFIG.maxFaceTranslation ||
+     Math.abs(width-previous.width)/width>CONFIG.maxFaceScaleChange));
+}
+
+export function usableSkinExposure(accepted,total) {
+  return accepted>=30 && accepted/Math.max(1,total)>=CONFIG.minimumExposureFraction;
+}

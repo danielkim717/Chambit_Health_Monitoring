@@ -44,15 +44,19 @@ test('model loading failure is explicit; does not fabricate numbers',async({page
 });
 test('65 second demo, questionnaire, result and restart use explicit virtual data',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.clock.install();await page.goto('/');await page.locator('#startHero').click();await page.locator('#modeSelect').selectOption('demo');
+  // Freeze between explicit advances: host load must not cross the 5s boundary.
+  await page.clock.install({time:new Date('2026-10-19T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2026-10-19T00:00:01Z'));
+  await page.goto('/');await page.locator('#startHero').click();await page.locator('#modeSelect').selectOption('demo');
   await page.locator('#measureBtn').click();await page.clock.runFor(4900);await expect(page.locator('#measureStatus')).toHaveText('준비');
-  await expect(page.locator('#hrValue')).toHaveText('--');await page.clock.runFor(20300);
+  // Include the next 2s analysis tick after the 20s collection milestone.
+  await expect(page.locator('#hrValue')).toHaveText('--');await page.clock.runFor(23000);
   await expect(page.locator('#hrValue')).toHaveText('72');await expect(page.locator('#rrValue')).toHaveText('--');
   await expect(page.locator('#timelineHr')).toHaveClass(/is-reached/);
   await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
   await page.clock.runFor(15000);await expect(page.locator('#rrValue')).toHaveText('15');
   await expect(page.locator('#timelineRr')).toHaveClass(/is-reached/);
-  await expect(page.locator('#continueBtn')).toBeHidden();await page.clock.runFor(25500);
+  await expect(page.locator('#continueBtn')).toBeHidden();await page.clock.runFor(23000);
   await expect(page.locator('#measureStatus')).toHaveText('측정 완료');await expect(page.locator('#timer')).toHaveText('01:00 / 01:00');
   await page.locator('#continueBtn').click();await expect(page.locator('#questionMode')).toContainText('가상 데이터');
   for(let i=0;i<4;i++)await page.locator('.answer-btn').first().click();
@@ -152,10 +156,17 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   send('analysis',{result:measurement(16,null),final:false});
   await expect(page.locator('#rrValue')).toHaveText('16');
   await expect(page.locator('#hrValue')).toHaveText('--');
-  send('analysis',{result:{...measurement(16,null),durationMs:60000,resultId:'c'.repeat(32),
+  send('analysis',{result:{...measurement(16,74),durationMs:60000,resultId:'c'.repeat(32),
+    hrReason:'신호가 약해 참고용으로 표시합니다.',rrReason:'신호가 약해 참고용으로 표시합니다.',
+    metrics:{hr:{sources:['efficientphys'],status:'tentative'},rr:{sources:['mtts_can'],status:'tentative'}},
     signalDiagnostics:{'mtts_can:rr':{inputWave:[0,1,0,-1],sampleRate:30}},
     frames:['excluded-video'],answers:['excluded-interview']},final:true});
-  await expect(page.locator('#rrState')).toHaveText('호흡수 추정값');
+  await expect(page.locator('#rrState')).toHaveText('신호 약함 · 참고값');
+  await expect(page.locator('#hrState')).toHaveText('신호 약함 · 참고값');
+  await expect(page.locator('#measureStatus')).toContainText('참고값 포함');
+  await expect(page.locator('#finalHrState')).toContainText('참고값');
+  await expect(page.locator('#finalRrState')).toContainText('참고값');
+  await expect(page.locator('#questionMode')).toContainText('참고값 포함');
   await expect(page.locator('#finalRr')).toHaveText('16');
   await expect(page.locator('#timelineEnd')).toHaveClass(/is-reached/);
   await page.locator('.measurement-diagnostics summary').click();
@@ -167,7 +178,8 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   const stream=await download.createReadStream(),chunks=[];
   for await(const chunk of stream)chunks.push(chunk);
   const saved=Buffer.concat(chunks).toString('utf8'),parsed=JSON.parse(saved);
-  expect(parsed.hr).toBeNull();expect(parsed.rr).toBe(16);
+  expect(parsed.hr).toBe(74);expect(parsed.rr).toBe(16);
+  expect(parsed.metrics.rr.status).toBe('tentative');
   expect(parsed.signalDiagnostics['mtts_can:rr'].inputWave).toEqual([0,1,0,-1]);
   expect(saved).not.toContain('excluded-');
   await page.locator('#measureBtn').click();
