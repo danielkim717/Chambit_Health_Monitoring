@@ -157,8 +157,8 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#rrValue')).toHaveText('16');
   await expect(page.locator('#hrValue')).toHaveText('--');
   send('analysis',{result:{...measurement(16,74),durationMs:60000,resultId:'c'.repeat(32),
-    hrReason:'신호가 약해 참고용으로 표시합니다.',rrReason:'신호가 약해 참고용으로 표시합니다.',
-    metrics:{hr:{sources:['efficientphys'],status:'tentative'},rr:{sources:['mtts_can'],status:'tentative'}},
+    hrReason:'신호가 약해 참고용으로 표시합니다.',rrReason:'신호가 약해 참고용으로 표시합니다. 영상이 끊긴 부분을 제외하고 연속된 43.0초 구간으로 추정했습니다.',
+    metrics:{hr:{sources:['efficientphys'],status:'tentative'},rr:{sources:['mtts_can'],status:'tentative',partialWindow:true,window:{startMs:17000,endMs:60000}}},
     signalDiagnostics:{'mtts_can:rr':{inputWave:[0,1,0,-1],sampleRate:30}},
     frames:['excluded-video'],answers:['excluded-interview']},final:true});
   await expect(page.locator('#rrState')).toHaveText('신호 약함 · 참고값');
@@ -166,6 +166,8 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#measureStatus')).toContainText('참고값 포함');
   await expect(page.locator('#finalHrState')).toContainText('참고값');
   await expect(page.locator('#finalRrState')).toContainText('참고값');
+  await expect(page.locator('#rrDetails')).toContainText('연속된 43.0초');
+  await expect(page.locator('#finalRrState')).toContainText('연속된 43.0초');
   await expect(page.locator('#questionMode')).toContainText('참고값 포함');
   await expect(page.locator('#finalRr')).toHaveText('16');
   await expect(page.locator('#timelineEnd')).toHaveClass(/is-reached/);
@@ -180,6 +182,8 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   const saved=Buffer.concat(chunks).toString('utf8'),parsed=JSON.parse(saved);
   expect(parsed.hr).toBe(74);expect(parsed.rr).toBe(16);
   expect(parsed.metrics.rr.status).toBe('tentative');
+  expect(parsed.metrics.rr.partialWindow).toBe(true);
+  expect(parsed.metrics.rr.window).toEqual({startMs:17000,endMs:60000});
   expect(parsed.signalDiagnostics['mtts_can:rr'].inputWave).toEqual([0,1,0,-1]);
   expect(saved).not.toContain('excluded-');
   await page.locator('#measureBtn').click();

@@ -19,7 +19,7 @@ export function measurementAnalysisFile(result) {
 export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
   if(mode!=='demo' && result?.rr != null && result.metrics?.rr?.status==='tentative')
     return {state:'신호 약함 · 참고값',reason:result.rrReason || '다시 측정해 비교해 주세요.'};
-  if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:''};
+  if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:result.metrics?.rr?.partialWindow?result.rrReason:''};
   if(final)return {state:'측정 불가',reason:result?.rrReason || '호흡 신호가 부족합니다.'};
   if(mode==='demo')return {state:'신호 수집 중',reason:'가상 데이터'};
   if(collectedMs < CONFIG.respirationPreviewMs)return {
@@ -79,7 +79,7 @@ export function mountMeasurement({onReset,onContinue}) {
     showRespirationState(r,final,r.durationMs || 0);
     const tentativeHr=mode!=='demo' && r.metrics?.hr?.status==='tentative';
     if(tentativeHr)el('hrState').textContent='신호 약함 · 참고값';
-    el('hrDetails').textContent=r.hr===null || tentativeHr?(r.hrReason || ''):'';
+    el('hrDetails').textContent=r.hr===null || tentativeHr || r.metrics?.hr?.partialWindow?(r.hrReason || ''):'';
     el('qualityDetails').textContent=r.delayed?'영상 분석이 평소보다 오래 걸리고 있습니다. 결과가 준비되면 표시합니다.':
       final?'수집을 마쳤습니다. 각 항목의 결과와 안내를 확인해 주세요.':'중간 추정값은 신호가 충분할 때 표시되며, 측정하는 동안 달라질 수 있습니다.';
     if(r.metrics){
@@ -96,6 +96,8 @@ export function mountMeasurement({onReset,onContinue}) {
     for(const id of ['questionMode','resultMode'])el(id).textContent=label()+(hasTentative?' · 신호 약한 참고값 포함':'');
     el('finalHrState').textContent=r.hr===null?r.hrReason:tentativeHr?'신호 약함 · 참고값 · 재측정 권장':'추정값 · 정상 여부 판정 안 함';
     el('finalRrState').textContent=r.rr===null?r.rrReason:r.metrics?.rr?.status==='tentative'?'신호 약함 · 참고값 · 재측정 권장':'추정값 · 정상 여부 판정 안 함';
+    for(const [key,id] of [['hr','finalHrState'],['rr','finalRrState']])
+      if(r.metrics?.[key]?.partialWindow)el(id).textContent+=' · '+r[key+'Reason'];
     el('resultMeasurementMeta').textContent=`${label()} · 수집 ${clock(r.durationMs)} · ${r.fps.toFixed(1)}fps`;
   }
   function showRespirationState(r,final,collectedMs) {

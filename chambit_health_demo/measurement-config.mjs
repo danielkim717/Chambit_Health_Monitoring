@@ -8,6 +8,7 @@ export const CONFIG = Object.freeze({
   heartBand: [0.7, 3], respirationBand: [0.1, 0.5],
   respirationAgreement: 3,
   maxFaceTranslation: .05, maxFaceScaleChange: .06, minimumExposureFraction: .65,
+  faceDetectionIntervalMs: 60,
   modelPath: '/assets/face_landmarker.task',
   wasmPath: '/assets/mediapipe/wasm',
 });
@@ -20,4 +21,15 @@ export function excessiveFaceMotion(previous,current,width,t) {
 
 export function usableSkinExposure(accepted,total) {
   return accepted>=30 && accepted/Math.max(1,total)>=CONFIG.minimumExposureFraction;
+}
+
+export class FaceDetectionCache {
+  constructor(){this.reset();}
+  reset(){this.faces=[];this.lastTime=-Infinity;}
+  read(t,detect){
+    if(this.faces.length!==1 || t<=this.lastTime || t-this.lastTime>=CONFIG.faceDetectionIntervalMs){
+      this.faces=detect();this.lastTime=t;
+    }
+    return this.faces;
+  }
 }

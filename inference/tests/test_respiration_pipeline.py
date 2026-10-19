@@ -103,6 +103,51 @@ def test_rr_missing_checkpoint_is_not_a_generic_signal_failure(pipeline):
     assert result['errors'][0]['message'] == '가중치 파일 없음'
 
 
+def test_rr_recovers_a_continuous_window_without_interpolating_across_gap(pipeline):
+    request = job(60, final=True)
+    request['samples'] = request['samples'][:500] + request['samples'][504:]
+    seen = []
+    original = pipeline.models[0].predict
+    def track(frames):
+        seen.extend(frames[:, 0, 0, 0].tolist())
+        return original(frames)
+    pipeline.models[0].predict = track
+    result = pipeline.run(request)
+    assert result['rr'] == pytest.approx(15, abs=1)
+    rr = result['metrics']['rr']
+    assert rr['partialWindow'] and result['quality'] == 'partial'
+    assert rr['window']['startMs'] == pytest.approx(16800)
+    assert rr['window']['endMs'] <= 60000
+    assert min(seen) >= 16.8-1e-5
+    assert '연속된 43.0초' in result['rrReason']
+    assert result['signalDiagnostics']['mtts_can:rr']['startMs'] == rr['window']['startMs']
+    assert pipeline.run(job(20, revision=1))['rr'] is None
+
+
+def test_rr_does_not_join_two_short_spans_to_make_35_seconds(pipeline):
+    request = job(60, final=True)
+    request['samples'] = request['samples'][:900] + request['samples'][904:]
+    result = pipeline.run(request)
+    assert result['rr'] is None
+    assert result['metrics']['rr']['reasonCode'] == 'short_continuous_window'
+    assert '연속 35초' in result['rrReason']
+
+
+def test_recovered_window_must_have_real_temporal_signal(pipeline):
+    request = job(60, final=True)
+    request['samples'] = request['samples'][:500] + tuple(
+        (t, pixels, [100, 110, 120], scene) for t, pixels, _, scene in request['samples'][504:])
+    assert pipeline.run(request)['rr'] is None
+
+
+def test_latest_equal_length_continuous_window_wins_without_quality_search():
+    from inference.pipeline import continuous_model_samples
+    samples = tuple((t,) for t in list(range(0, 21001, 40))+list(range(22000, 43001, 40)))
+    chosen = continuous_model_samples(samples, 24)
+    assert chosen[0][0] == 22000 and chosen[-1][0] == 43000
+    assert continuous_model_samples(tuple((t,) for t in range(0, 60001, 50)), 24) is None
+
+
 def test_rr_distinguishes_brief_frame_gaps_from_low_fps(pipeline):
     request = job(36)
     request['samples'] = request['samples'][:500] + request['samples'][503:]

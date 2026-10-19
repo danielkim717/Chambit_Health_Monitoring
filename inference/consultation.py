@@ -88,6 +88,9 @@ class Interview:
                 facts[metric] += ' · 신호 약함, 참고값이며 재측정이 필요합니다.'
         if self.result['mode'] == 'demo':
             facts['demo'] = '가상 데이터 데모입니다. 표시된 수치는 실제 측정값이 아닙니다.'
+        for metric in ('hr', 'rr'):
+            if self.result.get('metrics', {}).get(metric, {}).get('partialWindow') and metric in facts:
+                facts[metric] += ' · '+self.result['metrics'][metric]['reason']
         if self.result['quality'] != 'good':
             facts['quality'] = '고른 조명에서 얼굴을 정면으로 맞추고 움직임을 줄여 재측정하세요.'
         for a in self.answers:

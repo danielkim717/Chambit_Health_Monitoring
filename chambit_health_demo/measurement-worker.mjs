@@ -2,9 +2,10 @@
 // 연결과 사용: MediaPipe로 얼굴과 이마·볼 영역을 찾고 자세·움직임·노출을 검사해 RGB 입력을 전달합니다.
 // 파일 안내: docs/FILE_GUIDE.md
 import { FaceLandmarker, FilesetResolver } from './assets/mediapipe/vision_bundle.mjs';
-import { CONFIG, excessiveFaceMotion, usableSkinExposure } from './measurement-config.mjs';
+import { CONFIG, excessiveFaceMotion, usableSkinExposure, FaceDetectionCache } from './measurement-config.mjs';
 
 let detector, surface, context, previousFace=null;
+const faceCache=new FaceDetectionCache();
 const crop=new OffscreenCanvas(128,128), cropContext=crop.getContext('2d',{willReadFrequently:true});
 // Interior forehead and cheek polygons, excluding eyelids and lips.
 const regions = [[109,10,338,337,151,108],[50,101,205,206,216,212],[280,330,425,426,436,432]];
@@ -20,7 +21,8 @@ function extract(bitmap,t) {
   const w=320,h=Math.round(bitmap.height/bitmap.width*w);
   if(!surface || surface.height!==h){surface=new OffscreenCanvas(w,h);context=surface.getContext('2d',{willReadFrequently:true});}
   context.drawImage(bitmap,0,0,w,h);
-  const faces=detector.detectForVideo(surface,t).faceLandmarks;
+  // Reuse only recent geometry; crop pixels and skin RGB always come from this frame.
+  const faces=faceCache.read(t,()=>detector.detectForVideo(surface,t).faceLandmarks);
   if(faces.length!==1){previousFace=null;return {t,reason:faces.length?'한 사람만 화면에 들어와 주세요.':'얼굴을 정면으로 맞춰 주세요.',polygons:[]};}
   const face=faces[0],center=face[1],width=Math.abs(face[454].x-face[234].x);
   const polygons=regions.map(ids=>ids.map(i=>({x:face[i].x,y:face[i].y})));
@@ -70,7 +72,7 @@ self.onmessage=async ({data})=>{
       });
       postMessage({type:'ready'});
     } else if(data.type==='start') {
-      previousFace=null;
+      previousFace=null;faceCache.reset();
     } else if(data.type==='frame') {
       try {
         const started=performance.now(),sample=extract(data.bitmap,data.t);

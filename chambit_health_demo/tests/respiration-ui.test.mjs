@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { respirationDisplay, measurementAnalysisFile } from '../measurement-ui.mjs';
 
+test('recovered respiration names the actual partial window',()=>{
+  const result={rr:15,rrReason:'연속된 43.0초 구간으로 추정했습니다.',metrics:{rr:{partialWindow:true,status:'valid'}}};
+  assert.equal(respirationDisplay(result,true,60000).reason,result.rrReason);
+  assert.equal(respirationDisplay(result,false,60000).reason,result.rrReason);
+});
+
 test('weak respiration values remain explicitly tentative during and after measurement',()=>{
   const result={rr:15,rrReason:'다시 측정해 비교해 주세요.',metrics:{rr:{status:'tentative'}}};
   for(const final of [false,true]){

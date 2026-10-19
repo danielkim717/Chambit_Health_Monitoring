@@ -17,6 +17,22 @@ from .feedback import explain_failure
 HR_PREVIEW_MS = 20000
 RR_PREVIEW_MS = 35000
 
+
+def continuous_model_samples(samples, min_fps):
+    """Keep one real, continuous interval; never join across a camera gap."""
+    times = np.array([s[0] for s in samples], dtype=float)
+    cuts = np.r_[0, np.flatnonzero(np.diff(times) > 100) + 1, len(times)]
+    spans = []
+    for left, right in zip(cuts[:-1], cuts[1:]):
+        duration = times[right-1]-times[left]
+        if right-left > 1 and duration >= HR_PREVIEW_MS and (right-left-1)*1000/duration >= min_fps:
+            spans.append((duration, times[right-1], left, right))
+    if not spans:
+        return None
+    # Prefer the longest supported interval (latest on a tie), not the best-looking signal.
+    _, _, left, right = max(spans)
+    return samples[left:right]
+
 @dataclass
 class Measurement:
     started: float
@@ -192,29 +208,43 @@ class Pipeline:
             if adapter.model is None:
                 errors.append({'model': spec.id, 'code': 'model_unavailable', 'message': adapter.error})
                 continue
-            if not timing_ok or fps < spec.min_fps or max_gap > 100:
+            model_samples = samples
+            if max_gap > 100 or fps < spec.min_fps:
+                model_samples = continuous_model_samples(samples, spec.min_fps)
+            model_signal = model_samples is not None and bool(np.max(np.std(
+                np.array([s[2] for s in model_samples]), axis=0)) > 1e-4)
+            if model_samples is None or not model_signal:
                 code = 'low_fps' if fps < spec.min_fps else 'frame_gap' if max_gap > 100 else 'weak_signal'
                 errors.append({'model': spec.id, 'code': code, 'fps': fps, 'maxGapMs': max_gap,
                                'requiredFps': spec.min_fps, 'allowedGapMs': 100,
                                'message': '학습 모델의 입력 속도, 연속성 또는 영상 변화량 조건을 충족하지 못했습니다.'})
                 continue
+            model_times = np.array([s[0] for s in model_samples], dtype=float)
+            model_start_ms, model_end_ms = float(model_times[0]), float(model_times[-1])
+            model_end_ms = model_start_ms + int((model_end_ms-model_start_ms)*30/1000/10+1e-6)*10*1000/30
+            partial_window = model_start_ms != start or model_end_ms != end
+            if partial_window and rr_due and 'rr' in spec.metrics and model_end_ms-model_start_ms < RR_PREVIEW_MS:
+                errors.append({'model': spec.id, 'code': 'short_continuous_window',
+                               'availableSeconds': (model_end_ms-model_start_ms)/1000,
+                               'requiredSeconds': RR_PREVIEW_MS/1000,
+                               'message': '호흡 분석에 필요한 연속 구간이 부족합니다.'})
             model_start = time.perf_counter()
             try:
-                grid = np.arange(start, end+.001, 1000/spec.fps)
-                index = np.searchsorted(times, grid, side='right').clip(1, len(times)-1)
-                weight = ((grid-times[index-1])/(times[index]-times[index-1])).astype(np.float32)
+                grid = np.arange(model_start_ms, model_end_ms+.001, 1000/spec.fps)
+                index = np.searchsorted(model_times, grid, side='right').clip(1, len(model_times)-1)
+                weight = ((grid-model_times[index-1])/(model_times[index]-model_times[index-1])).astype(np.float32)
                 count = (len(grid)-1)//10*10
                 pieces = {metric: [] for metric in spec.metrics}
                 for offset in range(0, count, spec.chunk_frames):
                     n = min(spec.chunk_frames, count-offset)
-                    key = (spec.id, start, offset)
+                    key = (spec.id, model_start_ms, offset)
                     output = self.cache.get(key)
                     if output is None:
                         indices, mix = index[offset:offset+n+1], weight[offset:offset+n+1, None, None, None]
                         # Completed chunks already have cached outputs. Resize only
                         # the real source frames needed for this new/tail chunk.
                         needed = np.unique(np.concatenate((indices-1, indices)))
-                        reduced = np.stack([cv2.resize(samples[i][1], (spec.size, spec.size),
+                        reduced = np.stack([cv2.resize(model_samples[i][1], (spec.size, spec.size),
                                                       interpolation=cv2.INTER_AREA) for i in needed])
                         before = reduced[np.searchsorted(needed, indices-1)].astype(np.float32)
                         after = reduced[np.searchsorted(needed, indices)].astype(np.float32)
@@ -231,8 +261,9 @@ class Pipeline:
                     # Never concatenate independently bandpassed/cumulative waveforms.
                     differences = np.concatenate(segments)
                     wave = np.cumsum(differences)
-                    c = candidate(spec.id, metric, wave, spec.fps, start, end,
+                    c = candidate(spec.id, metric, wave, spec.fps, model_start_ms, model_end_ms,
                                   include_diagnostics=job['final'], quality_mode=self.quality_mode)
+                    c['partialWindow'] = partial_window
                     if job['final']:
                         c['signalDiagnostics'].update(inputMeaning='cumulative_model_temporal_difference',
                             modelDifferences=differences.tolist(), chunkFrames=spec.chunk_frames,
@@ -243,10 +274,12 @@ class Pipeline:
             except Exception as exc:
                 errors.append({'model': spec.id, 'code': 'analysis_error', 'message': f'{type(exc).__name__}: {exc}'})
         hr, hr_audit = fuse(candidates, 'hr')
+        self.describe_window(hr, start, acquisition_end)
         capture = job['state'].get('capture', {})
         explain_failure('hr', hr, candidates, errors, self.models, capture)
         if rr_due:
             rr, rr_audit = fuse(candidates, 'rr')
+            self.describe_window(rr, start, acquisition_end)
             explain_failure('rr', rr, candidates, errors, self.models, capture)
             self.last_rr = (rr, rr_audit)
             self.last_rr_end = acquisition_end
@@ -268,7 +301,7 @@ class Pipeline:
         elapsed = (time.perf_counter()-started)*1000
         return {'mode': 'real', 'hr': hr['value'], 'rr': rr['value'], 'hrReason': hr['reason'], 'rrReason': rr['reason'],
                 'metrics': {'hr': hr, 'rr': rr}, 'durationMs': acquisition_end-start, 'fps': fps,
-                'quality': 'good' if hr['status'] == rr['status'] == 'valid' else 'partial' if valid_hr or valid_rr else 'insufficient',
+                'quality': 'good' if hr['status'] == rr['status'] == 'valid' and not (hr.get('partialWindow') or rr.get('partialWindow')) else 'partial' if valid_hr or valid_rr else 'insufficient',
                 'wave': best['wave'] if best else [], 'respWave': self.last_rr_wave,
                 'candidates': [{k: v for k, v in c.items() if k not in ('wave', 'signalDiagnostics')} for c in candidates],
                 **({'signalDiagnostics': {c['id']: c['signalDiagnostics'] for c in candidates
@@ -277,3 +310,14 @@ class Pipeline:
                 'errors': errors, 'capture': capture, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
                     'queueMs': round((started-job['queuedAt'])*1000, 1)},
                 'delayed': (time.perf_counter()-job['queuedAt'])*1000 > (5000 if rr_due else 2000)}
+
+    @staticmethod
+    def describe_window(result, start, end):
+        window = result.get('window')
+        if result['value'] is None or not window:
+            return
+        # Ignore only the normal < 1/3s alignment tail; expose genuine excluded footage.
+        if window['startMs'] > start+1 or window['endMs'] < end-334:
+            result['partialWindow'] = True
+            seconds = (window['endMs']-window['startMs'])/1000
+            result['reason'] = (result['reason']+' ' if result['reason'] else '') + f'영상이 끊긴 부분을 제외하고 연속된 {seconds:.1f}초 구간으로 추정했습니다.'

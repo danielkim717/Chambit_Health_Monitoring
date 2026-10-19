@@ -82,6 +82,12 @@ def test_api_accepts_only_server_owned_result_and_remote_consent():
             assert response.status_code==200
         assert response.json()['done'] and any('가상' in x for x in response.json()['summary'])
 
+
+def test_interview_preserves_recovered_interval():
+    result = {**RESULT, 'rr': 15, 'quality': 'partial',
+              'metrics': {'rr': {'partialWindow': True, 'reason': '연속된 43.0초 구간으로 추정했습니다.'}}}
+    assert '43.0초' in Interview(result).facts()['rr']
+
 def test_valid_llm_selects_only_given_facts_and_omitted_vitals_still_render(monkeypatch):
     monkeypatch.setenv('LOCAL_LLM_BASE_URL','http://127.0.0.1:8080/v1')
     monkeypatch.setenv('LOCAL_LLM_MODEL','test')
