@@ -228,7 +228,9 @@ def create_app(models=None, pipeline_factory=Pipeline):
                         t = control.get('t')
                         if not isinstance(t, (int, float)) or not math.isfinite(t) or t < 0:
                             raise ValueError('Invalid start time')
-                        session = Measurement(float(t))
+                        rr_fps = [m.spec.min_fps for m in app.state.models
+                                  if m.model is not None and 'rr' in m.spec.metrics]
+                        session = Measurement(float(t), rr_min_fps=min(rr_fps) if rr_fps else None)
                         session.clock_skew_ms = time.monotonic()*1000-t
                         await send({'type': 'started', 'sessionId': session.id, 'revision': 0})
                     elif control.get('type') == 'cancel':

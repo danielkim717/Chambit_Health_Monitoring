@@ -16,6 +16,28 @@ from .feedback import explain_failure
 
 HR_PREVIEW_MS = 20000
 RR_PREVIEW_MS = 35000
+RR_EXTRA_MS = 30000
+
+
+def capture_intervals(samples, min_fps=24):
+    times = np.array([s[0] for s in samples], dtype=float)
+    if len(times) < 2:
+        return {'longestMs': 0., 'currentMs': 0., 'gapCount': 0, 'gaps': [], 'intervals': []}
+    gaps = np.diff(times)
+    breaks = np.flatnonzero(gaps > 100)
+    cuts = np.r_[0, breaks+1, len(times)]
+    intervals = []
+    for left, right in zip(cuts[:-1], cuts[1:]):
+        span = times[right-1]-times[left]
+        fps = (right-left-1)*1000/span if span > 0 else 0.
+        # Match the actual ten-frame model grid; raw duration alone can overstate it.
+        supported = int(span*30/1000/10+1e-6)*10*1000/30 if fps >= min_fps else 0.
+        intervals.append({'startMs': float(times[left]), 'endMs': float(times[right-1]),
+                          'fps': float(fps), 'supportedMs': float(supported)})
+    return {'longestMs': max(i['supportedMs'] for i in intervals),
+            'currentMs': intervals[-1]['supportedMs'], 'gapCount': len(breaks),
+            'gaps': [{'startMs': float(times[i]), 'endMs': float(times[i+1]),
+                      'durationMs': float(gaps[i])} for i in breaks], 'intervals': intervals}
 
 
 def continuous_model_samples(samples, min_fps):
@@ -57,6 +79,10 @@ class Measurement:
     clock_skew_ms: float | None = None
     transit_ms: float = 0
     capture: dict = field(default_factory=dict)
+    rr_min_fps: float | None = None
+    extra_ms: float = RR_EXTRA_MS
+    extending: bool = False
+    capture_check: dict = field(default_factory=dict)
 
     def reset(self, reason):
         self.revision += 1
@@ -65,6 +91,8 @@ class Measurement:
         self.stable = self.collection = self.good = None
         self.last_hr = self.last_rr = 0
         self.capture = {}
+        self.extending = False
+        self.capture_check = {}
         self.reason = reason
 
     def tick(self, t):
@@ -109,9 +137,16 @@ class Measurement:
             # Retain at most 60 seconds (plus one boundary frame for interpolation).
             while len(self.samples) > 1 and t-self.samples[1][0] > self.collect_ms:
                 self.samples.popleft()
+            self.capture_check = capture_intervals(self.samples, self.rr_min_fps or 24)
             if t-self.collection >= self.collect_ms:
-                self.phase = 'complete'
+                deadline = min(self.collection+self.collect_ms+self.extra_ms, self.started+self.max_ms-1000)
+                self.extending = (self.rr_min_fps is not None and
+                                  self.capture_check['longestMs'] < RR_PREVIEW_MS and t < deadline)
+                if not self.extending:
+                    self.phase = 'complete'
         self.reason = '편안하게 정면을 바라보며 자연스럽게 호흡해 주세요.'
+        if self.extending:
+            self.reason = '호흡 분석에 필요한 연속 영상이 부족해 최대 30초 더 수집합니다. 편안하게 자연 호흡을 유지해 주세요.'
         return True
 
     def state(self, now):
@@ -119,10 +154,17 @@ class Measurement:
         collection = self.collection if self.collection is not None else good
         stable = self.stable if self.stable is not None else good
         duration = max(0, good-collection)
-        fps = (len(self.samples)-1)*1000/duration if duration > 0 else 0
+        span = self.samples[-1][0]-self.samples[0][0] if len(self.samples)>1 else 0
+        fps = (len(self.samples)-1)*1000/span if span > 0 else 0
         return {'phase': self.phase, 'revision': self.revision, 'reason': self.reason,
                 'preparedMs': min(self.prepare_ms, max(0, good-stable)),
                 'collectedMs': min(duration, self.collect_ms), 'elapsedMs': max(0, now-self.started),
+                'collectionElapsedMs': duration,
+                'respirationCapture': {'extending': self.extending,
+                    'longestMs': self.capture_check.get('longestMs', 0),
+                    'currentMs': self.capture_check.get('currentMs', 0), 'requiredMs': RR_PREVIEW_MS,
+                    'extraMs': max(0, duration-self.collect_ms), 'maxExtraMs': self.extra_ms,
+                    'gapCount': self.capture_check.get('gapCount', 0)},
                 'fps': fps, 'requestedFps': 30, 'receivedFrames': self.received,
                 'droppedFrames': self.dropped, 'transportDelayMs': round(self.transit_ms, 1),
                 'capture': dict(self.capture)}
@@ -130,9 +172,9 @@ class Measurement:
     def job(self, final=False):
         if len(self.samples) < 2:
             return None
-        duration = self.samples[-1][0]-self.samples[0][0]
+        duration = self.samples[-1][0]-self.collection
         # Fill the incremental model cache before the first visible 20-second result.
-        hr = duration >= 6000 and duration-self.last_hr >= 2000
+        hr = duration >= 6000 and duration-self.last_hr >= (5000 if self.extending else 2000)
         rr = duration >= RR_PREVIEW_MS and duration-self.last_rr >= 5000
         if not final and not (hr or rr):
             return None
@@ -155,6 +197,7 @@ class Pipeline:
         self.last_rr = None
         self.last_rr_end = None
         self.last_rr_wave = []
+        self.buffer_start = None
 
     def run(self, job):
         started = time.perf_counter()
@@ -168,6 +211,11 @@ class Pipeline:
         samples = job['samples']
         times = np.array([s[0] for s in samples], dtype=float)
         start, end = float(times[0]), float(times[-1])
+        # Discard expired preprocessing windows, but retain an unchanged interval
+        # after a gap. Evicting that interval on every slide repeats all inference.
+        if self.buffer_start != start:
+            self.cache = {key: value for key, value in self.cache.items() if key[1] >= start}
+            self.buffer_start = start
         acquisition_end = end
         # Schedule from completed RR analysis, not from a queued request that may
         # have been replaced by a newer HR snapshot while inference was busy.
@@ -301,6 +349,9 @@ class Pipeline:
         elapsed = (time.perf_counter()-started)*1000
         return {'mode': 'real', 'hr': hr['value'], 'rr': rr['value'], 'hrReason': hr['reason'], 'rrReason': rr['reason'],
                 'metrics': {'hr': hr, 'rr': rr}, 'durationMs': acquisition_end-start, 'fps': fps,
+                'collectionElapsedMs': job['state'].get('collectionElapsedMs', acquisition_end-start),
+                'respirationCapture': job['state'].get('respirationCapture', {}),
+                **({'captureIntervals': capture_intervals(samples)} if job['final'] else {}),
                 'quality': 'good' if hr['status'] == rr['status'] == 'valid' and not (hr.get('partialWindow') or rr.get('partialWindow')) else 'partial' if valid_hr or valid_rr else 'insufficient',
                 'wave': best['wave'] if best else [], 'respWave': self.last_rr_wave,
                 'candidates': [{k: v for k, v in c.items() if k not in ('wave', 'signalDiagnostics')} for c in candidates],

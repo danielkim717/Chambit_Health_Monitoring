@@ -10,7 +10,8 @@ import { captureNotice } from './frame-pump.mjs';
 export function measurementAnalysisFile(result) {
   if(!result || result.mode!=='real' || !result.signalDiagnostics)return null;
   const fields=['mode','hr','rr','hrReason','rrReason','metrics','durationMs','fps','quality',
-    'capture','timing','errors','candidates','audit','signalDiagnostics'];
+    'capture','timing','errors','candidates','audit','signalDiagnostics',
+    'collectionElapsedMs','respirationCapture','captureIntervals'];
   const payload={formatVersion:1,description:'Numerical measurement diagnostics; rejected peaks are not vital signs.'};
   for(const key of fields)if(result[key]!==undefined)payload[key]=result[key];
   return JSON.stringify(payload,null,2);
@@ -98,9 +99,15 @@ export function mountMeasurement({onReset,onContinue}) {
     el('finalRrState').textContent=r.rr===null?r.rrReason:r.metrics?.rr?.status==='tentative'?'신호 약함 · 참고값 · 재측정 권장':'추정값 · 정상 여부 판정 안 함';
     for(const [key,id] of [['hr','finalHrState'],['rr','finalRrState']])
       if(r.metrics?.[key]?.partialWindow)el(id).textContent+=' · '+r[key+'Reason'];
-    el('resultMeasurementMeta').textContent=`${label()} · 수집 ${clock(r.durationMs)} · ${r.fps.toFixed(1)}fps`;
+    el('resultMeasurementMeta').textContent=`${label()} · 수집 ${clock(r.collectionElapsedMs ?? r.durationMs)} · ${r.fps.toFixed(1)}fps`;
   }
   function showRespirationState(r,final,collectedMs) {
+    if(!final && lastState.respirationCapture?.extending && r?.rr == null){
+      const current=lastState.respirationCapture.currentMs/1000;
+      el('rrState').textContent='호흡 영상 추가 수집 중';
+      el('rrDetails').textContent=`현재 연속 영상 ${current.toFixed(1)}초입니다. 분석에 필요한 연속 35초를 확보하면 수집을 마칩니다. 추가 수집은 최대 30초입니다.`;
+      return;
+    }
     const display=respirationDisplay(r,final,collectedMs,mode);
     el('rrState').textContent=display.state;el('rrDetails').textContent=display.reason;
   }
@@ -137,8 +144,10 @@ export function mountMeasurement({onReset,onContinue}) {
       if(s.phase===lastState.phase && s.revision===lastState.revision &&
          (s.elapsedMs || 0)-(lastState.elapsedMs || 0)<250)return;
       el('measureStatus').textContent=s.phase==='preparing'?'준비':s.phase==='collecting'?'수집 중':s.phase==='complete'?'분석 중':'신호 부족';
+      if(s.respirationCapture?.extending)el('measureStatus').textContent='호흡 영상 추가 수집';
       el('prepareTimer').textContent=`준비 ${clock(s.preparedMs)} / ${clock(CONFIG.prepareMs)}`;
       el('timer').textContent=`${clock(s.collectedMs)} / ${clock(CONFIG.collectMs)}`;
+      if(s.respirationCapture?.extending)el('timer').textContent=`추가 ${clock(s.respirationCapture.extraMs)} / ${clock(s.respirationCapture.maxExtraMs)}`;
       drawTimeline(s);
       el('measurementGuide').textContent=mode==='demo'?'가상 데이터 체험 중 · 실제 생체신호가 아닙니다.':s.reason;
       const capture=s.capture;

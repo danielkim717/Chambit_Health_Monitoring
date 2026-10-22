@@ -182,6 +182,38 @@ def test_completed_model_chunks_do_not_resize_old_video_again(pipeline, monkeypa
     assert result['rr'] == pytest.approx(15, abs=1)
 
 
+def test_sliding_buffer_discards_stale_preprocessing_cache(pipeline):
+    pipeline.run(job(60))
+    request=job(66,final=True)
+    request['samples']=request['samples'][180:]
+    request['state']['collectionElapsedMs']=66000
+    result=pipeline.run(request)
+    assert result['rr']==pytest.approx(15,abs=1)
+    assert result['collectionElapsedMs']==66000
+    assert result['durationMs']==pytest.approx(60000)
+    assert len(pipeline.cache)<=10
+    assert all(key[1]==6000 for key in pipeline.cache)
+    assert result['captureIntervals']['longestMs']==60000
+
+
+def test_sliding_buffer_keeps_unchanged_post_gap_model_chunks(pipeline):
+    calls=[]
+    original=pipeline.models[0].predict
+    def predict(frames):
+        calls.append(len(frames))
+        return original(frames)
+    pipeline.models[0].predict=predict
+    first=job(65)
+    first['samples']=first['samples'][150:951]+first['samples'][957:]
+    pipeline.run(first)
+    calls.clear()
+    final=job(67,final=True)
+    final['samples']=final['samples'][210:951]+final['samples'][957:]
+    result=pipeline.run(final)
+    assert result['rr']==pytest.approx(15,abs=1)
+    assert sum(calls)<=181  # Only the unfinished tail, never the full 35s interval.
+
+
 def test_client_diagnostics_explain_slow_processing_but_cannot_validate_low_fps(pipeline):
     request = job(60, fps=20, final=True)
     request['state']['capture'] = {'cameraFps': 30, 'processedFps': 20, 'pendingReplaced': 20}

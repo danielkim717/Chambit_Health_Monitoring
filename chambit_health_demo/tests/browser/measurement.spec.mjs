@@ -153,6 +153,13 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#rrState')).toHaveText('호흡 분석 중');
   await expect(page.locator('#captureNotice')).toContainText('앱의 처리 속도');
   await expect(page.locator('#timelineRr')).toHaveClass(/is-reached/);
+  send('state',{state:{phase:'collecting',revision:0,preparedMs:5000,collectedMs:60000,
+    elapsedMs:69000,fps:26.5,droppedFrames:1,reason:'호흡용 연속 영상을 더 수집합니다.',
+    respirationCapture:{extending:true,currentMs:31000,longestMs:31666,requiredMs:35000,extraMs:4000,maxExtraMs:30000}}});
+  await expect(page.locator('#measureStatus')).toHaveText('호흡 영상 추가 수집');
+  await expect(page.locator('#rrState')).toHaveText('호흡 영상 추가 수집 중');
+  await expect(page.locator('#timer')).toContainText('추가 00:04 / 00:30');
+  await expect(page.locator('#timelineEnd')).not.toHaveClass(/is-reached/);
   send('analysis',{result:measurement(16,null),final:false});
   await expect(page.locator('#rrValue')).toHaveText('16');
   await expect(page.locator('#hrValue')).toHaveText('--');

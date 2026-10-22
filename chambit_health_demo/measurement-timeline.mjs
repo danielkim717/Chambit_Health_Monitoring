@@ -11,6 +11,10 @@ export function measurementTimeline(state={}, final=false) {
   let message='카메라를 켜고 측정을 시작해 주세요.';
   if(phase==='preparing')message=`자세를 맞추는 중 · 준비 ${Math.max(0,Math.ceil((CONFIG.prepareMs-(state.preparedMs || 0))/1000))}초 남았어요`;
   else if(final)message='수집을 마쳤어요. 아래에서 측정 결과를 확인하세요.';
+  else if(state.respirationCapture?.extending) {
+    const r=state.respirationCapture;
+    message=`호흡용 연속 영상 ${(r.currentMs/1000).toFixed(1)} / ${r.requiredMs/1000}초 · 추가 수집 ${Math.floor(r.extraMs/1000)} / ${r.maxExtraMs/1000}초`;
+  }
   else if(ms>=CONFIG.collectMs)message='수집 완료 · 마지막 결과를 정리하고 있어요';
   else if(phase==='collecting') {
     if(ms<CONFIG.previewMs)message=`첫 심박 분석까지 ${Math.ceil((CONFIG.previewMs-ms)/1000)}초 남았어요`;
@@ -19,5 +23,5 @@ export function measurementTimeline(state={}, final=false) {
   }
   return {seconds,percent:ms/CONFIG.collectMs*100,message,
     started:phase==='collecting' || phase==='complete',
-    hrReached:ms>=CONFIG.previewMs,rrReached:ms>=CONFIG.respirationPreviewMs,complete:ms>=CONFIG.collectMs};
+    hrReached:ms>=CONFIG.previewMs,rrReached:ms>=CONFIG.respirationPreviewMs,complete:ms>=CONFIG.collectMs && !state.respirationCapture?.extending};
 }
