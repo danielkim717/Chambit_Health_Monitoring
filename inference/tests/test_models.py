@@ -71,3 +71,31 @@ def test_mtts_matches_saved_keras_graph_both_heads():
     actual=adapter.predict(frames)
     for metric,target in zip(('hr','rr'),expected):
         np.testing.assert_allclose(actual[metric],target.ravel(),atol=2e-5,rtol=2e-4)
+
+
+def test_mtts_window_batches_match_one_shared_normalization_and_monolithic_network():
+    if not (WEIGHTS/'mtts_can.hdf5').exists():pytest.skip('Model weights not installed')
+    adapter=Adapter(SPECS[1])
+    assert adapter.spec.normalization == 'continuous_window'
+    # Lighting and motion scale vary across batches. Independent normalization
+    # would change the network input and fail parity with the complete interval.
+    rng=np.random.default_rng(10)
+    t=np.arange(401,dtype=np.float32)
+    texture=rng.normal(0,8,(36,36,3)).astype(np.float32)
+    frames=100+texture[None]+(t*.06+np.sin(t*.07)*(1+t*.01))[:,None,None,None]
+    prepared=adapter.prepare(frames)
+    expected=adapter.forward(prepared)
+    forwarded=[]
+    forward=adapter.forward
+    def track(inputs):
+        forwarded.append(len(inputs[0]))
+        return forward(inputs)
+    adapter.forward=track
+    actual=adapter.predict(frames)
+    assert forwarded == [180,180,40]
+    for metric,target in zip(adapter.spec.metrics,expected):
+        np.testing.assert_allclose(actual[metric],target.ravel(),atol=2e-5,rtol=2e-4)
+    # Regression evidence: this fixture distinguishes the old per-chunk inputs.
+    old=adapter.prepare(frames[:181])
+    assert not np.allclose(old[0],prepared[0][:180])
+    assert not np.allclose(old[1],prepared[1][:180])

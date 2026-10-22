@@ -38,10 +38,12 @@ class ModelSpec:
     chunk_frames: int = 180
     frame_depth: int = 10
     output: str = 'temporal_difference'
+    normalization: str = 'per_chunk'
 
 SPECS = [
     ModelSpec('efficientphys', 72, ('hr',), 'PURE_EfficientPhys.pth', 'ubicomplab/rPPG-Toolbox'),
-    ModelSpec('mtts_can', 36, ('hr', 'rr'), 'mtts_can.hdf5', 'xliucs/MTTS-CAN'),
+    ModelSpec('mtts_can', 36, ('hr', 'rr'), 'mtts_can.hdf5', 'xliucs/MTTS-CAN',
+              normalization='continuous_window'),
 ]
 
 def verified(name):
@@ -151,6 +153,22 @@ class Adapter:
         if n < 10:
             raise ValueError('At least 11 real frames are required')
         inputs = self.prepare(frames[:n+1])
+        if self.spec.normalization == 'continuous_window':
+            # Normalize the complete continuous interval once. Batch only the
+            # network computation; never normalize each six-second batch anew.
+            # Temporal shift groups have ten frames and do not cross batch edges.
+            pieces = [self.forward([a[offset:offset+self.spec.chunk_frames] for a in inputs])
+                      for offset in range(0, n, self.spec.chunk_frames)]
+            outputs = [np.concatenate([piece[i] for piece in pieces])
+                       for i in range(len(self.spec.metrics))]
+        else:
+            outputs = self.forward(inputs)
+        result = {metric: a.reshape(-1).astype(np.float64) for metric, a in zip(self.spec.metrics, outputs)}
+        if any(len(a) != n or not np.isfinite(a).all() for a in result.values()):
+            raise ValueError('Invalid model waveform')
+        return result
+
+    def forward(self, inputs):
         if self.runtime == 'onnxruntime':
             outputs = self.model.run(None, {i.name: a for i, a in zip(self.model.get_inputs(), inputs)})
         else:
@@ -158,10 +176,7 @@ class Adapter:
                 outputs = self.model(*[torch.from_numpy(a).to(DEVICE) for a in inputs])
                 outputs = outputs if isinstance(outputs, tuple) else (outputs,)
                 outputs = [a.cpu().numpy() for a in outputs]
-        result = {metric: a.reshape(-1).astype(np.float64) for metric, a in zip(self.spec.metrics, outputs)}
-        if any(len(a) != n or not np.isfinite(a).all() for a in result.values()):
-            raise ValueError('Invalid model waveform')
-        return result
+        return outputs
 
     def health(self):
         from dataclasses import asdict

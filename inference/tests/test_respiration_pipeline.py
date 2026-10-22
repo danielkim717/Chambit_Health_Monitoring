@@ -186,6 +186,53 @@ def test_preview_cannot_be_carried_into_final_after_short_continuous_capture(pip
     assert all(c['status'] != 'preliminary' for c in final['candidates'])
 
 
+def test_continuous_normalization_uses_whole_interval_on_rr_cadence_and_resets(pipeline):
+    from copy import copy
+    adapter = pipeline.models[0]
+    adapter.spec = copy(adapter.spec)
+    adapter.spec.normalization = 'continuous_window'
+    seen = []
+    predict = adapter.predict
+    def track(frames):
+        seen.append(len(frames))
+        return predict(frames)
+    adapter.predict = track
+    first = pipeline.run(job(20))
+    assert seen == [601] and first['rr'] == pytest.approx(15, abs=1)
+    pipeline.run(job(22))
+    assert seen == [601]  # No full-window work during the intervening HR job.
+    next_result = pipeline.run(job(25))
+    assert seen == [601,751] and next_result['rr'] == pytest.approx(15, abs=1)
+    final = pipeline.run(job(60, final=True))
+    assert seen[-1] == 1801
+    assert final['signalDiagnostics']['mtts_can:rr']['normalization'] == 'continuous_window'
+    assert final['signalDiagnostics']['mtts_can:rr']['chunkLengths'] == [1800]
+    pipeline.run(job(60, final=True))
+    assert seen == [601,751,1801]  # An unchanged interval may be reused.
+    pipeline.run(job(60, revision=1, final=True))
+    assert seen == [601,751,1801,1801]
+
+
+def test_continuous_normalization_never_joins_across_a_camera_gap(pipeline):
+    from copy import copy
+    adapter = pipeline.models[0]
+    adapter.spec = copy(adapter.spec)
+    adapter.spec.normalization = 'continuous_window'
+    seen = []
+    predict = adapter.predict
+    def track(frames):
+        seen.append(frames[:,0,0,0].copy())
+        return predict(frames)
+    adapter.predict = track
+    request = job(60, final=True)
+    request['samples'] = request['samples'][:500] + request['samples'][504:]
+    result = pipeline.run(request)
+    assert len(seen) == 1 and seen[0][0] == pytest.approx(16.8)
+    assert len(seen[0]) == 1291
+    assert result['rr'] == pytest.approx(15, abs=1)
+    assert result['metrics']['rr']['partialWindow']
+
+
 def test_completed_model_chunks_do_not_resize_old_video_again(pipeline, monkeypatch):
     import cv2
     pipeline.run(job(36))

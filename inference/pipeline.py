@@ -194,6 +194,7 @@ class Pipeline:
         if self.quality_mode not in ('strict', 'balanced'):
             raise ValueError('SIGNAL_QUALITY_MODE must be strict or balanced')
         self.cache = {}
+        self.window_cache = {}
         self.generation = None
         self.last_rr = None
         self.last_rr_end = None
@@ -205,6 +206,7 @@ class Pipeline:
         generation = (job['sessionId'], job['revision'])
         if generation != self.generation:
             self.cache.clear()
+            self.window_cache.clear()
             self.last_rr = None
             self.last_rr_end = None
             self.last_rr_wave = []
@@ -254,8 +256,13 @@ class Pipeline:
                            'message': '프레임 속도, 연속성 또는 영상 변화량이 부족합니다.'})
         for adapter in self.models:
             spec = adapter.spec
+            normalization = getattr(spec, 'normalization', 'per_chunk')
             if adapter.model is None:
                 errors.append({'model': spec.id, 'code': 'model_unavailable', 'message': adapter.error})
+                continue
+            # Whole-window respiratory preprocessing costs more than an incremental
+            # heart update. Run it on the RR cadence (and on early HR/final jobs).
+            if normalization == 'continuous_window' and not rr_due and end-start >= RR_PREVIEW_MS:
                 continue
             model_samples = samples
             if max_gap > 100 or fps < spec.min_fps:
@@ -285,10 +292,14 @@ class Pipeline:
                 weight = ((grid-model_times[index-1])/(model_times[index]-model_times[index-1])).astype(np.float32)
                 count = (len(grid)-1)//10*10
                 pieces = {metric: [] for metric in spec.metrics}
-                for offset in range(0, count, spec.chunk_frames):
-                    n = min(spec.chunk_frames, count-offset)
+                step = max(count, 10) if normalization == 'continuous_window' else spec.chunk_frames
+                for offset in range(0, count, step):
+                    n = min(step, count-offset)
                     key = (spec.id, model_start_ms, offset)
-                    output = self.cache.get(key)
+                    window_key = (model_start_ms, model_end_ms)
+                    cached_window = self.window_cache.get(spec.id)
+                    output = ((cached_window[1] if cached_window and cached_window[0] == window_key else None)
+                              if normalization == 'continuous_window' else self.cache.get(key))
                     if output is None:
                         indices, mix = index[offset:offset+n+1], weight[offset:offset+n+1, None, None, None]
                         # Completed chunks already have cached outputs. Resize only
@@ -300,7 +311,9 @@ class Pipeline:
                         after = reduced[np.searchsorted(needed, indices)].astype(np.float32)
                         frames = before*(1-mix)+after*mix
                         output = adapter.predict(frames)
-                        if n == spec.chunk_frames:
+                        if normalization == 'continuous_window':
+                            self.window_cache[spec.id] = (window_key, output)
+                        elif n == spec.chunk_frames:
                             self.cache[key] = output
                     for metric in spec.metrics:
                         pieces[metric].append(output[metric])
@@ -319,7 +332,8 @@ class Pipeline:
                         c['signalDiagnostics'].update(inputMeaning='cumulative_model_temporal_difference',
                             modelDifferences=differences.tolist(), chunkFrames=spec.chunk_frames,
                             chunkLengths=[len(segment) for segment in segments],
-                            normalization='per_chunk', inputSize=spec.size)
+                            normalization=normalization, inputSize=spec.size,
+                            inferenceBatchFrames=spec.chunk_frames)
                     candidates.append(c)
                 timings[spec.id] = round((time.perf_counter()-model_start)*1000, 1)
             except Exception as exc:
