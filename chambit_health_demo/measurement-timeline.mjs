@@ -1,5 +1,5 @@
 // 파일 역할: 측정 진행 시간과 분석 시작점 계산
-// 연결과 사용: 수집 시간에 맞춰 심박 20초·호흡 35초·완료 60초 안내와 진행 상태를 계산합니다.
+// 연결과 사용: 수집 시간에 맞춰 초기 심박 12초·초기 호흡 20초·완료 60초 안내와 진행 상태를 계산합니다.
 // 파일 안내: docs/FILE_GUIDE.md
 import { CONFIG } from './measurement-config.mjs';
 
@@ -17,8 +17,8 @@ export function measurementTimeline(state={}, final=false) {
   }
   else if(ms>=CONFIG.collectMs)message='수집 완료 · 마지막 결과를 정리하고 있어요';
   else if(phase==='collecting') {
-    if(ms<CONFIG.previewMs)message=`첫 심박 분석까지 ${Math.ceil((CONFIG.previewMs-ms)/1000)}초 남았어요`;
-    else if(ms<CONFIG.respirationPreviewMs)message=`심박 분석 시작 · 호흡 분석까지 ${Math.ceil((CONFIG.respirationPreviewMs-ms)/1000)}초`;
+    if(ms<CONFIG.previewMs)message=`초기 심박 분석까지 ${Math.ceil((CONFIG.previewMs-ms)/1000)}초 남았어요`;
+    else if(ms<CONFIG.respirationPreviewMs)message=`초기 심박 분석 중 · 초기 호흡 분석까지 ${Math.ceil((CONFIG.respirationPreviewMs-ms)/1000)}초`;
     else message=`심박·호흡 분석 중 · 수집 완료까지 ${Math.ceil((CONFIG.collectMs-ms)/1000)}초`;
   }
   return {seconds,percent:ms/CONFIG.collectMs*100,message,

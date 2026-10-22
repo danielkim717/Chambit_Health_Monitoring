@@ -141,7 +141,7 @@ button:disabled,select:disabled{opacity:.55;cursor:default}
 .timeline-milestones i{display:grid;place-items:center;box-sizing:border-box;width:32px;height:32px;border:3px solid #dce6ef;border-radius:50%;background:#fff;color:#8595a5;font-style:normal;font-size:17px;transition:background .3s,box-shadow .3s,transform .3s}
 .timeline-milestones b{font-size:12px;margin-top:3px}.timeline-milestones span{font-size:11px}
 .timeline-milestones .milestone-start{left:0;transform:translateX(-20%)}
-.timeline-milestones .milestone-hr{left:33.3333%}.timeline-milestones .milestone-rr{left:58.3333%}
+.timeline-milestones .milestone-hr{left:20%}.timeline-milestones .milestone-rr{left:33.3333%}
 .timeline-milestones .milestone-end{right:0;transform:translateX(20%)}
 .timeline-milestones .is-reached{color:#226f69}.timeline-milestones .is-reached i{background:#218775;color:white;border-color:#d2f1e8;box-shadow:0 0 0 4px rgba(33,135,117,.1);transform:scale(1.08)}
 .timeline-milestones .milestone-hr.is-reached i{background:#2878ff;border-color:#dbeaff}
@@ -150,4 +150,5 @@ button:disabled,select:disabled{opacity:.55;cursor:default}
 .measurement-diagnostics summary{font-size:12px;color:#63758a;cursor:pointer}
 .capture-notice{padding:12px 16px;border:1px solid #f0dab0;background:#fff8e9;color:#7d5a18;border-radius:12px;font-size:13px;line-height:1.6;word-break:keep-all}
 @media(max-width:620px){.measurement-timeline{padding:18px 16px 14px}.timeline-heading{font-size:13px}.timeline-caption{font-size:11px}#timelineMessage{font-size:12px;min-height:3em;margin-bottom:14px}.timeline-milestones b{font-size:11px}.timeline-milestones span{font-size:10px}.timeline-route{margin:0 6px}.timeline-heading strong{max-width:65%;word-break:keep-all}}
+@media(max-width:620px){.timeline-route{height:104px}.timeline-milestones b{max-width:32px;white-space:normal;text-align:center;line-height:1.2}.timeline-milestones span{font-size:9px}.timeline-milestones .milestone-rr b{margin-top:17px}}
 @media(prefers-reduced-motion:reduce){.timeline-track>div,.timeline-milestones i{transition:none}.scan-line,.pulse-ring{animation:none!important}}

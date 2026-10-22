@@ -6,12 +6,15 @@ import numpy as np
 from scipy import signal
 
 BANDS = {'hr': (.7, 3.), 'rr': (.1, .5)}
+PREVIEW_SECONDS = {'hr': 12, 'rr': 20}
+FINAL_SECONDS = {'hr': 20, 'rr': 35}
+PREVIEW_REASON = '짧은 구간의 초기 추정값입니다. 영상을 더 모으면서 다시 확인합니다.'
 
 def bandpass(x, fs, band):
     x = signal.detrend(np.asarray(x, dtype=float))
     return signal.sosfiltfilt(signal.butter(2, band, fs=fs, btype='bandpass', output='sos'), x)
 
-def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagnostics=False, quality_mode='strict'):
+def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagnostics=False, quality_mode='strict', allow_preview=False):
     if quality_mode not in ('strict', 'balanced'):
         raise ValueError('Unknown signal quality mode')
     base = {'id': f'{model}:{metric}', 'model': model, 'metric': metric,
@@ -20,7 +23,9 @@ def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagn
             'features': {}, 'checks': {}, 'rejectionCodes': [], 'wave': [], 'sampleRate': float(fs),
             'qualityMode': quality_mode}
     wave = np.asarray(wave, dtype=float)
-    minimum_seconds = 20 if metric == 'hr' else 35
+    minimum_seconds = PREVIEW_SECONDS[metric] if allow_preview else FINAL_SECONDS[metric]
+    early = len(wave) < fs * FINAL_SECONDS[metric]
+    base['finalMinimumSeconds'] = FINAL_SECONDS[metric]
     finite = bool(np.isfinite(wave).all())
     base['checks'] = {'duration': {'passed': len(wave) >= fs * minimum_seconds,
                                   'actualSeconds': len(wave)/fs, 'minimumSeconds': minimum_seconds},
@@ -74,10 +79,23 @@ def candidate(model, metric, wave, fs, start, end, family=None, *, include_diagn
         'bandInterior': {'passed': bool(BANDS[metric][0]+.005 < freq < BANDS[metric][1]-.005),
                          'actualHz': float(freq), 'exclusiveMinimumHz': BANDS[metric][0]+.005,
                          'exclusiveMaximumHz': BANDS[metric][1]-.005}})
+    if early:
+        # A short window must contain at least three estimated cycles after
+        # trimming filter edges. Slow respiration therefore waits longer.
+        base['checks']['observedCycles'] = {
+            'passed': bool(len(x)/fs*freq >= 3), 'actual': float(len(x)/fs*freq), 'minimum': 3}
+        # A bandpass alone can make a brief noise window look periodic.
+        # Require evidence in the detrended waveform before that bandpass.
+        raw_f, raw_power = signal.periodogram(signal.detrend(wave), fs=fs, window='hann',
+                                             nfft=max(8192, len(wave)))
+        raw_mask = (raw_f >= BANDS[metric][0]) & (raw_f <= BANDS[metric][1])
+        raw_ratio = float(raw_power[raw_mask].sum()/max(raw_power.sum(), 1e-12))
+        base['checks']['rawBandEnergy'] = {'passed': raw_ratio >= .5, 'actual': raw_ratio, 'minimum': .5}
     base['rejectionCodes'] = [key for key, check in base['checks'].items() if not check['passed']]
     if not base['rejectionCodes']:
-        base.update(value=float(freq*60), status='valid', reason='')
-    elif quality_mode == 'balanced' and base['checks']['bandInterior']['passed']:
+        base.update(value=float(freq*60), status='preliminary' if early else 'valid',
+                    reason=PREVIEW_REASON if early else '')
+    elif not early and quality_mode == 'balanced' and base['checks']['bandInterior']['passed']:
         # A weaker candidate is a visibly tentative result, never a strict pass.
         # Reject rate drift by comparing disjoint halves with the whole window.
         rates = []
@@ -145,7 +163,7 @@ def fuse(candidates, metric, proposal=None):
     unit = 'bpm' if metric == 'hr' else 'breaths/min'
     result = {'value': None, 'unit': unit, 'status': 'insufficient', 'reason': '유효한 후보가 없습니다.',
               'quality': None, 'sources': [], 'window': None}
-    valid = [c for c in candidates if c['metric'] == metric and c['status'] in ('valid', 'tentative')
+    valid = [c for c in candidates if c['metric'] == metric and c['status'] in ('valid', 'tentative', 'preliminary')
              and c['value'] is not None and np.isfinite(c['value'])]
     audit = {'quality': [{'id': c['id'], 'features': c['features']} for c in candidates if c['metric']==metric],
              'debate': [], 'clusters': [], 'action': 'reject', 'selected': []}
@@ -158,6 +176,8 @@ def fuse(candidates, metric, proposal=None):
     if strict:
         audit['excludedTentative'] = [c['id'] for c in valid if c['status'] == 'tentative']
         valid = strict
+    elif any(c['status'] == 'tentative' for c in valid):
+        valid = [c for c in valid if c['status'] == 'tentative']
     # Different derivations from one parent waveform provide at most one candidate.
     unique = {}
     for c in valid:
@@ -193,9 +213,10 @@ def fuse(candidates, metric, proposal=None):
         executable = executable and len(ids)==len(set(ids)) and set(ids)==expected
         audit['action'] = 'accept' if executable else 'repair'
     weights = np.array([max(c['quality'], .01) for c in selected])
+    status = selected[0]['status']
     result.update(value=float(np.average([c['value'] for c in selected], weights=weights)),
-                  status='valid' if strict else 'tentative',
-                  reason='' if strict else '신호가 약해 참고용으로 표시합니다. 다시 측정해 비교해 주세요.',
+                  status=status,
+                  reason='' if status == 'valid' else PREVIEW_REASON if status == 'preliminary' else '신호가 약해 참고용으로 표시합니다. 다시 측정해 비교해 주세요.',
                   quality=float(weights.max()),
                   sources=[c['model'] for c in selected],
                   window={'startMs': latest[1], 'endMs': latest[0]})

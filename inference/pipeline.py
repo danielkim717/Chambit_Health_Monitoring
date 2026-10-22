@@ -11,11 +11,12 @@ import uuid
 import cv2
 import numpy as np
 
-from .signals import candidate, chrom, pos, derived_respiration, fuse
+from .signals import candidate, chrom, pos, derived_respiration, fuse, PREVIEW_SECONDS, FINAL_SECONDS
 from .feedback import explain_failure
 
-HR_PREVIEW_MS = 20000
-RR_PREVIEW_MS = 35000
+HR_PREVIEW_MS = PREVIEW_SECONDS['hr'] * 1000
+RR_PREVIEW_MS = PREVIEW_SECONDS['rr'] * 1000
+RR_FINAL_MS = FINAL_SECONDS['rr'] * 1000
 RR_EXTRA_MS = 30000
 
 
@@ -141,7 +142,7 @@ class Measurement:
             if t-self.collection >= self.collect_ms:
                 deadline = min(self.collection+self.collect_ms+self.extra_ms, self.started+self.max_ms-1000)
                 self.extending = (self.rr_min_fps is not None and
-                                  self.capture_check['longestMs'] < RR_PREVIEW_MS and t < deadline)
+                                  self.capture_check['longestMs'] < RR_FINAL_MS and t < deadline)
                 if not self.extending:
                     self.phase = 'complete'
         self.reason = '편안하게 정면을 바라보며 자연스럽게 호흡해 주세요.'
@@ -162,7 +163,7 @@ class Measurement:
                 'collectionElapsedMs': duration,
                 'respirationCapture': {'extending': self.extending,
                     'longestMs': self.capture_check.get('longestMs', 0),
-                    'currentMs': self.capture_check.get('currentMs', 0), 'requiredMs': RR_PREVIEW_MS,
+                    'currentMs': self.capture_check.get('currentMs', 0), 'requiredMs': RR_FINAL_MS,
                     'extraMs': max(0, duration-self.collect_ms), 'maxExtraMs': self.extra_ms,
                     'gapCount': self.capture_check.get('gapCount', 0)},
                 'fps': fps, 'requestedFps': 30, 'receivedFrames': self.received,
@@ -173,7 +174,7 @@ class Measurement:
         if len(self.samples) < 2:
             return None
         duration = self.samples[-1][0]-self.collection
-        # Fill the incremental model cache before the first visible 20-second result.
+        # Fill the incremental model cache before the first visible 12-second result.
         hr = duration >= 6000 and duration-self.last_hr >= (5000 if self.extending else 2000)
         rr = duration >= RR_PREVIEW_MS and duration-self.last_rr >= 5000
         if not final and not (hr or rr):
@@ -239,7 +240,7 @@ class Pipeline:
             for name, method in [('chrom', chrom), ('pos', pos)]:
                 wave = method(rgb, fs)
                 c = candidate(name, 'hr', wave, fs, start, end, include_diagnostics=job['final'],
-                              quality_mode=self.quality_mode)
+                              quality_mode=self.quality_mode, allow_preview=not job['final'])
                 if job['final']:
                     c['signalDiagnostics']['inputMeaning'] = 'baseline_pulse_waveform'
                 candidates.append(c)
@@ -271,10 +272,11 @@ class Pipeline:
             model_start_ms, model_end_ms = float(model_times[0]), float(model_times[-1])
             model_end_ms = model_start_ms + int((model_end_ms-model_start_ms)*30/1000/10+1e-6)*10*1000/30
             partial_window = model_start_ms != start or model_end_ms != end
-            if partial_window and rr_due and 'rr' in spec.metrics and model_end_ms-model_start_ms < RR_PREVIEW_MS:
+            required_rr_ms = RR_FINAL_MS if job['final'] else RR_PREVIEW_MS
+            if partial_window and rr_due and 'rr' in spec.metrics and model_end_ms-model_start_ms < required_rr_ms:
                 errors.append({'model': spec.id, 'code': 'short_continuous_window',
                                'availableSeconds': (model_end_ms-model_start_ms)/1000,
-                               'requiredSeconds': RR_PREVIEW_MS/1000,
+                               'requiredSeconds': required_rr_ms/1000,
                                'message': '호흡 분석에 필요한 연속 구간이 부족합니다.'})
             model_start = time.perf_counter()
             try:
@@ -310,7 +312,8 @@ class Pipeline:
                     differences = np.concatenate(segments)
                     wave = np.cumsum(differences)
                     c = candidate(spec.id, metric, wave, spec.fps, model_start_ms, model_end_ms,
-                                  include_diagnostics=job['final'], quality_mode=self.quality_mode)
+                                  include_diagnostics=job['final'], quality_mode=self.quality_mode,
+                                  allow_preview=not job['final'])
                     c['partialWindow'] = partial_window
                     if job['final']:
                         c['signalDiagnostics'].update(inputMeaning='cumulative_model_temporal_difference',
@@ -325,10 +328,14 @@ class Pipeline:
         self.describe_window(hr, start, acquisition_end)
         capture = job['state'].get('capture', {})
         explain_failure('hr', hr, candidates, errors, self.models, capture)
+        if not job['final']:
+            self.describe_collecting(hr, 'hr', candidates)
         if rr_due:
             rr, rr_audit = fuse(candidates, 'rr')
             self.describe_window(rr, start, acquisition_end)
             explain_failure('rr', rr, candidates, errors, self.models, capture)
+            if not job['final']:
+                self.describe_collecting(rr, 'rr', candidates)
             self.last_rr = (rr, rr_audit)
             self.last_rr_end = acquisition_end
         elif self.last_rr is not None:
@@ -361,6 +368,14 @@ class Pipeline:
                 'errors': errors, 'capture': capture, 'timing': {'inferenceMs': round(elapsed, 1), 'models': timings,
                     'queueMs': round((started-job['queuedAt'])*1000, 1)},
                 'delayed': (time.perf_counter()-job['queuedAt'])*1000 > (5000 if rr_due else 2000)}
+
+    @staticmethod
+    def describe_collecting(result, metric, candidates):
+        observed = [c for c in candidates if c['metric'] == metric]
+        if result['value'] is None and observed and all(
+                set(c['rejectionCodes']) & {'duration', 'observedCycles'} for c in observed):
+            result.update(status='collecting', reasonCode='more_cycles',
+                          reason='반복되는 신호를 더 모으고 있습니다. 충분히 확인되면 초기 추정값을 표시합니다.')
 
     @staticmethod
     def describe_window(result, start, end):

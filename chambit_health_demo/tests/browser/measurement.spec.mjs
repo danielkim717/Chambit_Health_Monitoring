@@ -111,13 +111,13 @@ test('partial real result keeps respiration unavailable through questionnaire',a
   await expect(page.locator('#questionText')).toContainText('불편한 증상');
   await expect(page.locator('#finalRr')).toHaveText('측정 불가');await expect(page.locator('#finalRrState')).toContainText('부드럽게 전달되지 않아');
 });
-test('timeline marks 20-second heart and 35-second respiration starts',async({page})=>{
+test('timeline marks early estimates and final results replace them',async({page})=>{
   let connection;
   const send=(type,extra)=>connection.send(JSON.stringify({type,sessionId:'rr-test',revision:0,...extra}));
-  const measurement=(rr,hr=72)=>({mode:'real',hr,rr,hrReason:'',rrReason:'호흡수는 35초부터 분석합니다.',
-    durationMs:rr===null?20000:36000,fps:30,wave:[],respWave:[],
-    metrics:{hr:{sources:[],status:hr===null?'insufficient':'valid'},
-      rr:{sources:rr===null?[]:['mtts_can'],status:rr===null?'collecting':'valid'}}});
+  const measurement=(rr,hr=72)=>({mode:'real',hr,rr,hrReason:'짧은 구간의 초기 추정값입니다.',rrReason:'호흡수는 20초부터 분석합니다.',
+    durationMs:rr===null?12000:20000,fps:30,wave:[],respWave:[],
+    metrics:{hr:{sources:[],status:hr===null?'insufficient':'preliminary'},
+      rr:{sources:rr===null?[]:['mtts_can'],status:rr===null?'collecting':'preliminary'}}});
   await page.routeWebSocket('**/api/measurement',socket=>{
     connection=socket;socket.send(JSON.stringify({type:'connected'}));
     socket.onMessage(raw=>{
@@ -143,12 +143,14 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#hrValue')).toHaveText('72');
   await expect(page.locator('#downloadAnalysisBtn')).toBeDisabled();
   await expect(page.locator('#rrState')).toHaveText('호흡 신호 수집 중');
-  await expect(page.locator('#rrDetails')).toContainText('35초부터');
+  await expect(page.locator('#rrDetails')).toContainText('20초부터');
+  await expect(page.locator('#hrState')).toHaveText('초기 추정값 · 확인 중');
+  await expect(page.locator('#hrDetails')).toContainText('초기 추정값');
   await expect(page.locator('#timelineHr')).toHaveClass(/is-reached/);
   await expect(page.locator('#timelineRr')).not.toHaveClass(/is-reached/);
-  await expect(page.locator('#timelineTrack')).toHaveAttribute('aria-valuenow','20');
-  send('state',{state:{phase:'collecting',revision:0,preparedMs:5000,collectedMs:35000,
-    elapsedMs:40000,fps:20,droppedFrames:0,reason:'호흡 분석',
+  await expect(page.locator('#timelineTrack')).toHaveAttribute('aria-valuenow','12');
+  send('state',{state:{phase:'collecting',revision:0,preparedMs:5000,collectedMs:20000,
+    elapsedMs:25000,fps:20,droppedFrames:0,reason:'호흡 분석',
     capture:{processedFrames:60,cameraFps:30,processedFps:20,extractionMeanMs:45,pendingReplaced:15}}});
   await expect(page.locator('#rrState')).toHaveText('호흡 분석 중');
   await expect(page.locator('#captureNotice')).toContainText('앱의 처리 속도');
@@ -162,6 +164,7 @@ test('timeline marks 20-second heart and 35-second respiration starts',async({pa
   await expect(page.locator('#timelineEnd')).not.toHaveClass(/is-reached/);
   send('analysis',{result:measurement(16,null),final:false});
   await expect(page.locator('#rrValue')).toHaveText('16');
+  await expect(page.locator('#rrState')).toHaveText('초기 추정값 · 확인 중');
   await expect(page.locator('#hrValue')).toHaveText('--');
   send('analysis',{result:{...measurement(16,74),durationMs:60000,resultId:'c'.repeat(32),
     hrReason:'신호가 약해 참고용으로 표시합니다.',rrReason:'신호가 약해 참고용으로 표시합니다. 영상이 끊긴 부분을 제외하고 연속된 43.0초 구간으로 추정했습니다.',

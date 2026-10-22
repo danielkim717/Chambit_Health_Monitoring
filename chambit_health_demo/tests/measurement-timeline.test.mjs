@@ -4,11 +4,11 @@ import { measurementTimeline } from '../measurement-timeline.mjs';
 
 test('capture milestones are analysis starts, not promises of a valid reading',()=>{
   const at=collectedMs=>measurementTimeline({phase:'collecting',collectedMs});
-  assert.equal(at(19999).hrReached,false);
-  assert.equal(at(20000).hrReached,true);
-  assert.equal(at(34999).rrReached,false);
-  assert.equal(at(35000).rrReached,true);
-  assert.match(at(35000).message,/분석 중/);
+  assert.equal(at(11999).hrReached,false);
+  assert.equal(at(12000).hrReached,true);
+  assert.equal(at(19999).rrReached,false);
+  assert.equal(at(20000).rrReached,true);
+  assert.match(at(20000).message,/분석 중/);
   assert.equal(at(60000).percent,100);
   assert.match(at(60000).message,/결과를 정리/);
 });

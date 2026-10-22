@@ -11,7 +11,7 @@
 | [chambit_health_demo/measurement-config.mjs](../chambit_health_demo/measurement-config.mjs) | 브라우저 측정 시간과 조건 설정 | 준비·수집·프레임 간격 등 화면과 처리 코드가 공유하는 기본값을 정의합니다. |
 | [chambit_health_demo/measurement-controller.mjs](../chambit_health_demo/measurement-controller.mjs) | 카메라 Worker 서버 통신 연결 | 카메라 수집, Worker 얼굴 처리, WebSocket 전송, 취소와 서버 결과 수신을 관리합니다. |
 | [chambit_health_demo/measurement-session.mjs](../chambit_health_demo/measurement-session.mjs) | 브라우저 측정 상태 전환 | 준비·수집·시간 초과 등 시각 기반 상태를 관리합니다. 최종 측정 결과는 서버 응답을 따릅니다. |
-| [chambit_health_demo/measurement-timeline.mjs](../chambit_health_demo/measurement-timeline.mjs) | 측정 진행 시간과 분석 시작점 계산 | 수집 시간에 맞춰 심박 20초·호흡 35초·완료 60초 안내와 진행 상태를 계산합니다. |
+| [chambit_health_demo/measurement-timeline.mjs](../chambit_health_demo/measurement-timeline.mjs) | 측정 진행 시간과 분석 시작점 계산 | 수집 시간에 맞춰 심박 12초·호흡 20초·완료 60초 안내와 진행 상태를 계산합니다. |
 | [chambit_health_demo/measurement-ui.mjs](../chambit_health_demo/measurement-ui.mjs) | 측정 결과와 실패 안내 화면 표시 | 수치·품질·분석 상세·재측정·분석 JSON 저장을 관리합니다. 실패 후보를 유효한 측정값으로 바꾸지 않습니다. |
 | [chambit_health_demo/measurement-worker.js](../chambit_health_demo/measurement-worker.js) | 얼굴 처리 Worker 시작과 메시지 대기 | MediaPipe 호환 classic Worker에서 ES 모듈을 불러오고 로딩 중 메시지를 보관합니다. |
 | [chambit_health_demo/measurement-worker.mjs](../chambit_health_demo/measurement-worker.mjs) | 얼굴 검출과 ROI 픽셀 추출 | MediaPipe로 얼굴과 이마·볼 영역을 찾고 자세·움직임·노출을 검사해 RGB 입력을 전달합니다. |

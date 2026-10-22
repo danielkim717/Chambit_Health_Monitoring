@@ -10,6 +10,8 @@ def explain_failure(metric, result, candidates, errors, models, capture=None):
     model_ids = {m.spec.id for m in models if metric in m.spec.metrics}
     relevant = [e for e in errors if e['model'] in model_ids or e['model'] == 'capture']
     codes = {e.get('code') for e in relevant}
+    required = next((e.get('requiredSeconds', 35) for e in relevant
+                     if e.get('code') == 'short_continuous_window'), 35)
     if result['status'] == 'conflict':
         code = 'conflict'
     elif 'low_fps' in codes:
@@ -37,7 +39,7 @@ def explain_failure(metric, result, candidates, errors, models, capture=None):
     else:
         code = 'weak_signal'
     messages = {
-        'short_continuous_window': '영상이 끊긴 부분을 제외하니 호흡 분석에 필요한 연속 35초 구간이 부족합니다. 카메라 연결을 확인하고 다른 무거운 작업을 닫은 뒤 다시 측정해 주세요.',
+        'short_continuous_window': f'영상이 끊긴 부분을 제외하니 호흡 분석에 필요한 연속 {required:g}초 구간이 부족합니다. 카메라 연결을 확인하고 다른 무거운 작업을 닫은 뒤 다시 측정해 주세요.',
         'unclear_periodicity': f'영상에서 반복되는 {"맥박" if metric == "hr" else "호흡"} 변화를 뚜렷하게 찾지 못해 {label}를 표시하지 못했습니다. 편안하게 정면을 바라보며 자연스럽게 호흡하고 다시 측정해 주세요. 이 결과만으로 실제 호흡이나 심장 상태를 판단할 수는 없습니다.',
         'low_fps': f'카메라 영상이 충분히 부드럽게 전달되지 않아 {label}를 측정하지 못했습니다. 다른 카메라 앱이나 무거운 작업을 닫고, 밝은 곳에서 다시 측정해 주세요.',
         'processing_slow': f'카메라 영상은 들어오고 있지만 앱의 영상 처리나 전송 중 일부가 누락되어 {label}를 측정하지 못했습니다. 다른 무거운 작업을 닫고 다시 시도해 주세요.',

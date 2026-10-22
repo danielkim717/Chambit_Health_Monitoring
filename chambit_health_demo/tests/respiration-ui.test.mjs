@@ -32,9 +32,15 @@ test('analysis export keeps rejected evidence but excludes video and interview d
 
 test('respiration explains its later start while heart rate is visible',()=>{
   const result={hr:72,rr:null,metrics:{rr:{status:'collecting'}}};
-  assert.equal(respirationDisplay(result,false,20000).state,'호흡 신호 수집 중');
-  assert.match(respirationDisplay(result,false,20000).reason,/35초부터/);
-  assert.equal(respirationDisplay(result,false,35000).state,'호흡 분석 중');
+  assert.equal(respirationDisplay(result,false,12000).state,'호흡 신호 수집 중');
+  assert.match(respirationDisplay(result,false,12000).reason,/20초부터/);
+  assert.equal(respirationDisplay(result,false,20000).state,'호흡 분석 중');
+});
+
+test('early respiration is labelled as an initial estimate with its reason',()=>{
+  const result={rr:15,rrReason:'짧은 구간의 초기 추정값입니다.',metrics:{rr:{status:'preliminary'}}};
+  assert.equal(respirationDisplay(result,false,20000).state,'초기 추정값 · 확인 중');
+  assert.equal(respirationDisplay(result,false,20000).reason,result.rrReason);
 });
 
 test('respiration distinguishes rejected signals, conflicts, and final failure',()=>{

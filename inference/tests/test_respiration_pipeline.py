@@ -37,8 +37,11 @@ def pipeline(monkeypatch):
 
 
 def test_rr_runs_after_displaced_job_and_without_valid_hr(pipeline):
-    early = pipeline.run(job(20))
+    early = pipeline.run(job(18))
     assert early['rr'] is None and early['metrics']['rr']['status'] == 'collecting'
+    preview = pipeline.run(job(20))
+    assert preview['rr'] == pytest.approx(15, abs=1)
+    assert preview['metrics']['rr']['status'] == 'preliminary'
     first = pipeline.run(job(35))
     assert first['hr'] is None
     assert first['rr'] == pytest.approx(15, abs=1)
@@ -48,7 +51,7 @@ def test_rr_runs_after_displaced_job_and_without_valid_hr(pipeline):
     assert held['metrics']['rr']['window'] == first['metrics']['rr']['window']
     updated = pipeline.run(job(40))
     assert updated['metrics']['rr']['window']['endMs'] > first['metrics']['rr']['window']['endMs']
-    reset = pipeline.run(job(30, revision=1))
+    reset = pipeline.run(job(18, revision=1))
     assert reset['rr'] is None and reset['respWave'] == []
 
 
@@ -121,7 +124,7 @@ def test_rr_recovers_a_continuous_window_without_interpolating_across_gap(pipeli
     assert min(seen) >= 16.8-1e-5
     assert '연속된 43.0초' in result['rrReason']
     assert result['signalDiagnostics']['mtts_can:rr']['startMs'] == rr['window']['startMs']
-    assert pipeline.run(job(20, revision=1))['rr'] is None
+    assert pipeline.run(job(18, revision=1))['rr'] is None
 
 
 def test_rr_does_not_join_two_short_spans_to_make_35_seconds(pipeline):
@@ -150,7 +153,7 @@ def test_latest_equal_length_continuous_window_wins_without_quality_search():
 
 def test_rr_distinguishes_brief_frame_gaps_from_low_fps(pipeline):
     request = job(36)
-    request['samples'] = request['samples'][:500] + request['samples'][503:]
+    request['samples'] = tuple(s for i, s in enumerate(request['samples']) if i % 300 < 297)
     result = pipeline.run(request)
     assert result['fps'] >= 24
     assert result['metrics']['rr']['reasonCode'] == 'frame_gap'
@@ -158,14 +161,29 @@ def test_rr_distinguishes_brief_frame_gaps_from_low_fps(pipeline):
     assert 'mtts_can' not in result['rrReason']
 
 
-def test_heart_preview_at_twenty_seconds_without_early_respiration(pipeline):
+def test_heart_preview_at_twelve_seconds_without_early_respiration(pipeline):
     def predict(frames):
         t = frames[:, 0, 0, 0]
         return {'hr': np.diff(np.sin(2*np.pi*1.2*t)), 'rr': np.zeros(len(t)-1)}
     pipeline.models[0].predict = predict
-    result = pipeline.run(job(20))
+    result = pipeline.run(job(12))
     assert result['hr'] == pytest.approx(72, abs=1)
+    assert result['metrics']['hr']['status'] == 'preliminary'
     assert result['rr'] is None and result['metrics']['rr']['status'] == 'collecting'
+    confirmed = pipeline.run(job(20))
+    assert confirmed['metrics']['hr']['status'] == 'valid'
+
+
+def test_preview_cannot_be_carried_into_final_after_short_continuous_capture(pipeline):
+    request = job(60)
+    request['samples'] = request['samples'][:900] + request['samples'][904:]
+    preview = pipeline.run(request)
+    assert preview['rr'] == pytest.approx(15, abs=1)
+    assert preview['metrics']['rr']['status'] == 'preliminary'
+    request['final'] = True
+    final = pipeline.run(request)
+    assert final['rr'] is None and final['respWave'] == []
+    assert all(c['status'] != 'preliminary' for c in final['candidates'])
 
 
 def test_completed_model_chunks_do_not_resize_old_video_again(pipeline, monkeypatch):

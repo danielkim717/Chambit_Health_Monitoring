@@ -16,6 +16,31 @@ def test_flat_and_noise_are_not_measurements():
     assert derived_respiration(np.sin(np.arange(1800)/30*2*np.pi),30,0,60000) is None
 
 
+@pytest.mark.parametrize('metric,seconds,rate', [('hr',12,72), ('rr',20,15), ('rr',30,9)])
+def test_short_periodic_windows_are_preview_only(metric, seconds, rate):
+    t = np.arange(seconds*30)/30
+    wave = np.sin(2*np.pi*rate/60*t)
+    early = candidate('test', metric, wave, 30, 0, seconds*1000, allow_preview=True)
+    assert early['status'] == 'preliminary' and early['value'] == pytest.approx(rate, abs=1)
+    assert early['checks']['observedCycles']['passed']
+    result, _ = fuse([early], metric)
+    assert result['status'] == 'preliminary' and result['reason']
+    assert candidate('test', metric, wave, 30, 0, seconds*1000)['value'] is None
+
+
+def test_early_preview_waits_for_cycles_and_rejects_invalid_inputs():
+    t = np.arange(600)/30
+    slow = candidate('test', 'rr', np.sin(2*np.pi*.15*t), 30, 0, 20000, allow_preview=True)
+    assert slow['value'] is None and 'observedCycles' in slow['rejectionCodes']
+    for metric, seconds in [('hr',12), ('rr',20)]:
+        n = seconds*30
+        waves = [np.zeros(n), np.full(n, np.nan)]
+        waves += [np.random.default_rng(seed).normal(size=n) for seed in range(30)]
+        for wave in waves:
+            assert candidate('test', metric, wave, 30, 0, seconds*1000,
+                             allow_preview=True, quality_mode='balanced')['value'] is None
+
+
 def test_rejected_respiration_keeps_evidence_without_becoming_a_measurement():
     import json
     # A changing respiratory frequency has a spectral peak, but is not periodic.

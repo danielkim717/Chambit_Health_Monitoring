@@ -104,7 +104,7 @@ export function analyzePulse(pulse, fs) {
   output.rr=(rates[0].value+rates[1].value)/2;output.rrReason='';
   return output;
 }
-export function analyzeSamples(samples, mode='real', minimumMs=CONFIG.previewMs) {
+export function analyzeSamples(samples, mode='real', minimumMs=20000) {
   const durationMs=samples.length>1?samples.at(-1).t-samples[0].t:0;
   const fps=durationMs>0?(samples.length-1)*1000/durationMs:0;
   const failed=reason=>({mode,hr:null,rr:null,hrReason:reason,rrReason:reason,quality:'insufficient',durationMs,fps,wave:[]});

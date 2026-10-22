@@ -18,6 +18,8 @@ export function measurementAnalysisFile(result) {
 }
 
 export function respirationDisplay(result, final=false, collectedMs=0, mode='real') {
+  if(mode!=='demo' && result?.rr != null && result.metrics?.rr?.status==='preliminary')
+    return {state:'초기 추정값 · 확인 중',reason:result.rrReason || '영상을 더 모으면서 다시 확인합니다.'};
   if(mode!=='demo' && result?.rr != null && result.metrics?.rr?.status==='tentative')
     return {state:'신호 약함 · 참고값',reason:result.rrReason || '다시 측정해 비교해 주세요.'};
   if(result?.rr != null)return {state:mode==='demo'?'가상 데이터':final?'호흡수 추정값':'중간 추정값',reason:result.metrics?.rr?.partialWindow?result.rrReason:''};
@@ -25,10 +27,10 @@ export function respirationDisplay(result, final=false, collectedMs=0, mode='rea
   if(mode==='demo')return {state:'신호 수집 중',reason:'가상 데이터'};
   if(collectedMs < CONFIG.respirationPreviewMs)return {
     state:'호흡 신호 수집 중',
-    reason:`수집 ${CONFIG.respirationPreviewMs/1000}초부터 호흡을 분석합니다. 위 진행 막대에서 시작 시점을 확인하세요.`
+    reason:`수집 ${CONFIG.respirationPreviewMs/1000}초부터 신호가 충분하면 초기 호흡수를 표시합니다.`
   };
   if(!result || result.metrics?.rr?.status==='collecting')return {
-    state:'호흡 분석 중',reason:'모은 영상에서 호흡 신호를 분석하고 있습니다. 잠시만 기다려 주세요.'
+    state:'호흡 분석 중',reason:result?.metrics?.rr?.reasonCode==='more_cycles'?result.rrReason:'모은 영상에서 호흡 신호를 분석하고 있습니다. 잠시만 기다려 주세요.'
   };
   return {state:result.metrics?.rr?.status==='conflict'?'호흡 결과 확인 중':'호흡 신호 부족',
     reason:result.rrReason || '호흡 파형의 품질을 확인하고 있습니다.'};
@@ -79,8 +81,10 @@ export function mountMeasurement({onReset,onContinue}) {
     el('hrState').textContent=r.hr===null?(final?'측정 불가':'신호 수집 중'):(mode==='demo'?'가상 데이터':final?'심박수 추정값':'중간 추정값');
     showRespirationState(r,final,r.durationMs || 0);
     const tentativeHr=mode!=='demo' && r.metrics?.hr?.status==='tentative';
+    const earlyHr=mode!=='demo' && r.metrics?.hr?.status==='preliminary';
     if(tentativeHr)el('hrState').textContent='신호 약함 · 참고값';
-    el('hrDetails').textContent=r.hr===null || tentativeHr || r.metrics?.hr?.partialWindow?(r.hrReason || ''):'';
+    if(earlyHr)el('hrState').textContent='초기 추정값 · 확인 중';
+    el('hrDetails').textContent=r.hr===null || tentativeHr || earlyHr || r.metrics?.hr?.partialWindow?(r.hrReason || ''):'';
     el('qualityDetails').textContent=r.delayed?'영상 분석이 평소보다 오래 걸리고 있습니다. 결과가 준비되면 표시합니다.':
       final?'수집을 마쳤습니다. 각 항목의 결과와 안내를 확인해 주세요.':'중간 추정값은 신호가 충분할 때 표시되며, 측정하는 동안 달라질 수 있습니다.';
     if(r.metrics){
@@ -105,7 +109,7 @@ export function mountMeasurement({onReset,onContinue}) {
     if(!final && lastState.respirationCapture?.extending && r?.rr == null){
       const current=lastState.respirationCapture.currentMs/1000;
       el('rrState').textContent='호흡 영상 추가 수집 중';
-      el('rrDetails').textContent=`현재 연속 영상 ${current.toFixed(1)}초입니다. 분석에 필요한 연속 35초를 확보하면 수집을 마칩니다. 추가 수집은 최대 30초입니다.`;
+      el('rrDetails').textContent=`현재 연속 영상 ${current.toFixed(1)}초입니다. 최종 확인에 필요한 연속 35초를 확보하면 수집을 마칩니다. 추가 수집은 최대 30초입니다.`;
       return;
     }
     const display=respirationDisplay(r,final,collectedMs,mode);
