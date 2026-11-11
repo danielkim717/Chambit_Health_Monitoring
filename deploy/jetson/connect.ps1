@@ -1,7 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]*$')]
-    [string]$JetsonAddress,
+    [string]$JetsonAddress = 'chambit-jetson',
     [ValidatePattern('^[a-z_][a-z0-9_-]*$')]
     [string]$UserName = 'taewoo',
     [ValidateRange(1024, 65535)]

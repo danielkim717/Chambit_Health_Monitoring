@@ -1,0 +1,11 @@
+# JetPack 6.2 / L4T 36.4.x, Python 3.10, ARM64.
+# Install the Jetson CUDA torch wheel separately; never replace it with PyPI torch.
+fastapi==0.135.1
+uvicorn==0.35.0
+websockets==15.0.1
+# JPL torch 2.8.0 was built against NumPy 1.x.
+numpy==1.26.4
+scipy==1.15.3
+opencv-python==4.11.0.86
+h5py==3.15.1
+httpx==0.28.1

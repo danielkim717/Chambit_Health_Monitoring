@@ -162,8 +162,10 @@ async def organize_facts(provider, consent, facts, answers, client=None):
         if any(not isinstance(x, str) or x not in facts for x in ids) or len(set(ids)) != len(ids):
             raise ValueError('Unknown/duplicate fact')
         return ids
-    async with asyncio.timeout(15):
+    async def run_request():
         if client is not None:
             return await request(client)
         async with httpx.AsyncClient(timeout=15, trust_env=False) as http:
             return await request(http)
+    # JetPack's Python 3.10 has no asyncio.timeout context manager.
+    return await asyncio.wait_for(run_request(), timeout=15)

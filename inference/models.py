@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent
 WEIGHTS = ROOT / 'weights'
 DEVICE = os.getenv('INFERENCE_DEVICE', 'cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_num_threads(int(os.getenv('TORCH_THREADS', '2')))
+# Preserve FP32 reference parity on Ampere/Orin; cuDNN TF32 defaults can alter
+# small waveform differences even when weights and inputs are float32.
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 
 @dataclass(frozen=True)
 class ModelSpec:

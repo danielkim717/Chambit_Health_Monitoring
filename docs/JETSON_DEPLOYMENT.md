@@ -2,10 +2,13 @@
 
 ## 현재 상태 · 2026-11-11
 
-- 대상: Jetson **Orin Nano** 개발자 키트. 사용자가 설치한 JetPack은 6.2이며 실제 버전·메모리·CUDA는 접속 후 확인한다.
-- 노트북에 VS Code Remote-SSH와 OpenAI Codex 확장이 설치되어 있다.
-- 이전 주소 `192.168.68.67`로 SSH 접속을 시도했으나 응답 시간이 초과됐다. 젯슨의 현재 주소와 로그인 확인이 필요하다.
-- 이 문서와 배포 도구는 준비 단계다. **젯슨에 설치·GPU 추론·서비스 자동 시작·카메라 측정을 완료했다는 기록이 아니다.**
+- 대상: Jetson **Orin Nano** 개발자 키트. 실제 확인: L4T 36.4.7, CUDA 12.6, Python 3.10.12, 메모리 7.4GiB, 설치 전 저장공간 여유 32GB.
+- 노트북의 VS Code Remote-SSH로 프로젝트 폴더를 열었다. 노트북 SSH 별칭은 `chambit-jetson`이다. IP와 인증키는 사용자 SSH 설정에만 보관한다.
+- 젯슨의 `~/apps/Chambit_Health_Monitoring`에 저장소를 복제하고 사용자 폴더에 Node.js 22.23.4와 독립 Python 환경을 설치했다.
+- 젯슨 웹 서버 → 노트북 SSH 터널의 HTML 200 응답을 확인했다. Node 자동 검사 43개가 통과했다.
+- 두 모델 가중치의 체크섬을 확인했다. GPU 실행·서비스 상태·카메라 검증 결과는 아래 완료 확인표와 별도 검증 기록을 기준으로 한다.
+- 두 모델의 CUDA 파형 출력, Node 검사 43개, Python CUDA 검사 79개, 노트북 경유 WebSocket 통신을 확인했다.
+- 사용자 서비스 두 개가 active/enabled이고 `Linger=yes`다. 실제 재부팅 시험과 사람 대상 카메라 측정은 아직 수행하지 않았다.
 - PC의 동작 기준을 보존하고 젯슨에 별도 복제한다. Windows 가상환경과 node_modules는 복사하지 않는다.
 
 ## 1. 접속과 원격 개발
@@ -19,7 +22,7 @@ sudo apt-get install openssh-server
 sudo systemctl enable --now ssh
 ```
 
-노트북 PowerShell에서 `ssh taewoo@현재주소`로 로그인한다. 최초 접속 시 표시되는 호스트 키는
+노트북 PowerShell에서 `ssh taewoo@현재주소`로 로그인한다. 설정이 끝난 현재 노트북은 `ssh chambit-jetson`을 사용한다. 최초 접속 시 표시되는 호스트 키는
 젯슨의 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 결과와 비교한다.
 비밀번호는 로컬 SSH 로그인 창에서 입력하며 코드·문서·채팅에 저장하지 않는다.
 
@@ -67,12 +70,27 @@ PC용 `inference/requirements.txt`를 그대로 설치하지 않는다. 특히 S
 선택 기준:
 
 1. 기존 CUDA PyTorch가 동작하면 먼저 해당 Python과 라이브러리 버전을 기록하고 재사용 가능성을 확인한다.
-2. 새 환경은 NVIDIA의 JetPack 호환표를 기준으로 wheel 또는 컨테이너를 선택한다.
-   JetPack 6.2 표에는 컨테이너가 안내되어 있으므로 임의의 wheel URL을 추정하지 않는다.
+2. 새 환경은 NVIDIA의 JetPack 호환표와 PyTorch Torch-TensorRT의 JetPack 설치 문서를 기준으로 wheel 또는 컨테이너를 선택한다.
+   이번 환경은 후자의 문서가 안내하는 Jetson AI Lab CUDA 12.6용 PyTorch 2.8.0 wheel을 선택했다.
+   일반 PyPI의 같은 버전과 다른 빌드이므로 출처와 체크섬을 함께 고정한다.
 3. 현재 서비스 설치 도구는 **호스트의 `.venv/bin/python` 경로**를 전제로 한다.
    컨테이너를 선택하면 GPU 장치·네트워크·볼륨을 포함한 별도 실행 설정을 먼저 작성한다.
 4. FastAPI·NumPy·SciPy·OpenCV·h5py·httpx 및 테스트 의존성을 선택한 Python/PyTorch와 맞춘다.
 5. `.venv/bin/python`에서 CUDA 장치 접근과 실제 두 모델 실행을 확인한 후 버전을 고정한다.
+
+이번 기기에 맞춘 사용자 폴더 설치 명령:
+
+```bash
+bash deploy/jetson/bootstrap-user.sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Node.js 22.23.4·PyPA virtualenv·Jetson CUDA PyTorch 2.8.0 다운로드에 SHA-256 검증을 적용한다.
+가상환경에는 `inference/requirements-jetson.txt`와 검증된 전체 의존성 `requirements-jetson-lock.txt`를 설치한다. 실제 JPL PyTorch 빌드가 NumPy 1.x에
+맞춰져 있어 **NumPy 1.26.4 + OpenCV 4.11.0.86**을 사용하며, Python 3.10용으로 SciPy 1.15.3과
+h5py 3.15.1을 선택했다. PC 설치 목록은 그대로 유지한다. 설치 마지막에 NumPy 배열 → CUDA 계산을 검사한다.
+기존 CPU-only torch가 같은 버전으로 설치되어 있다면 새 가상환경에서 시작하거나 확인한 JPL wheel만
+`--force-reinstall --no-deps`로 교체한 뒤 검사한다. 시스템 CUDA를 업그레이드하지 않는다.
 
 호환 환경이 준비된 후에만 실행한다.
 
@@ -87,6 +105,28 @@ INFERENCE_DEVICE=cuda .venv/bin/python deploy/jetson/verify.py --local
 `npm ci --ignore-scripts`와 `npm run setup:assets`로 준비한다.
 
 ## 4. 재부팅 후 서버 자동 시작
+
+현재처럼 관리자 비밀번호를 자동 작업에 전달하지 않을 때는 사용자 서비스를 사용한다.
+사용자 폴더에 설치한 Node가 검색되도록 PATH를 설정한다.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+bash deploy/jetson/install-services.sh --user --check
+bash deploy/jetson/install-services.sh --user
+```
+
+사용자 서비스는 `~/.config/systemd/user/`에 설치된다. 로그인하지 않아도 부팅 시 실행하려면
+젯슨 터미널에서 **한 번** `sudo loginctl enable-linger "$USER"`를 실행해야 한다.
+`loginctl show-user "$USER" -p Linger`의 `yes`를 확인하기 전에는 무로그인 자동 시작 완료로 표시하지 않는다.
+상태·로그·재시작 명령은 다음과 같다.
+
+```bash
+systemctl --user status chambit-inference chambit-web --no-pager
+journalctl --user -u chambit-inference -u chambit-web -n 100 --no-pager
+systemctl --user restart chambit-inference chambit-web
+```
+
+아래는 **대안인 시스템 서비스 설치**다. 사용자 서비스와 같은 포트로 동시에 설치·실행하지 않는다.
 
 수동 실행 중인 프로젝트 서버를 먼저 종료한다. 5500·8000 포트가 다른 프로그램에 사용 중이면
 임의로 종료하지 말고 원인을 확인한다. 프로젝트 소유자 계정으로 다음을 실행한다.
@@ -109,6 +149,9 @@ journalctl -u chambit-inference -u chambit-web -n 100 --no-pager
 .venv/bin/python deploy/jetson/verify.py --url http://127.0.0.1:5500
 ```
 
+측정하지 않는 상태에서 `--websocket`을 추가하면 시작·얼굴 없는 프레임·취소까지 검사한다.
+이 검사는 카메라를 켜거나 생체 수치를 생성하지 않는다.
+
 SSH를 끊거나 원격 화면을 닫아도 서버는 유지된다. 노트북의 SSH 터널을 닫으면 그 노트북의
 localhost 접속은 끝나므로 다시 터널을 열어야 한다. 터널 없이 상시 접속하는 HTTPS 배포는 다음 단계다.
 인터넷 전체에 노출하는 포트 포워딩은 이 단계에 포함하지 않는다.
@@ -124,16 +167,37 @@ sudo systemctl disable --now chambit-web chambit-inference
 
 ## 완료 확인표와 다음 개발
 
-- [ ] SSH 로그인과 VS Code 원격 폴더 접근
-- [ ] 실제 JetPack·Python·CUDA·RAM·여유 저장공간 기록
-- [ ] 젯슨에서 제공한 HTML을 노트북 localhost 터널로 열기
-- [ ] 실제 두 학습 모델의 CUDA 실행과 HR·RR 출력 형태 확인
-- [ ] `/api/health`의 두 모델 준비와 노트북 카메라·WebSocket 연결 확인
+- [x] SSH 로그인과 VS Code 원격 폴더 접근
+- [x] 실제 JetPack·Python·CUDA·RAM·여유 저장공간 기록
+- [x] 젯슨에서 제공한 HTML을 노트북 localhost 터널로 열기
+- [x] 실제 두 학습 모델의 CUDA 실행과 HR·RR 출력 형태 확인
+- [x] `/api/health`의 두 모델 준비와 노트북 경유 WebSocket 시작·프레임·취소 확인
+- [x] 사용자 서비스 enabled/active 및 무로그인 자동 시작 설정 `Linger=yes`
+- [ ] 실제 노트북 카메라 입력 확인
 - [ ] 실제 60초 측정: 결과 상태·처리 지연·호흡 실패 근거 기록
 - [ ] 재부팅 후 자동 시작과 재접속
 - [ ] 이후: 호흡 안정화 → 결정적 후보 검증 보강 → 소형 LLM 문진 → 동의 기반 기록·근거 검색
 
+## 개발 재개
+
+노트북 VS Code에서 `Remote-SSH: Connect to Host...` → `chambit-jetson`을 선택하고
+`/home/taewoo/apps/Chambit_Health_Monitoring`을 연다. 젯슨 쪽 Codex·Python 확장과 Codex 실행 파일을 확인했다.
+Codex 계정 로그인은 사용자가 확장에서 진행한다. 인증 정보는 복사하거나 저장소에 넣지 않는다.
+
+노트북 PowerShell에서 현재 작업 폴더의 `./deploy/jetson/connect.ps1`을 실행하면 기본 SSH 별칭으로
+터널을 연다. 별칭이 없는 PC는 `-JetsonAddress 실제주소`를 지정한다. 웹페이지는 http://localhost:5502 이다.
+터널을 종료해도 젯슨 서비스는 유지되지만, 그 노트북의 localhost 연결은 다시 터널을 열어야 복구된다.
+서비스 실행 중에 `npm start`를 추가로 실행하면 포트가 충돌한다. 코드 수정 후에는 기존 서비스를 재시작한다.
+
+```bash
+cd ~/apps/Chambit_Health_Monitoring
+INFERENCE_DEVICE=cuda .venv/bin/python -m pytest inference/tests -q
+systemctl --user restart chambit-inference chambit-web
+.venv/bin/python deploy/jetson/verify.py --url http://127.0.0.1:5500 --wait 60 --websocket
+```
+
 참고: [NVIDIA PyTorch 설치](https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform/index.html),
 [JetPack 호환표](https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform-release-notes/pytorch-jetson-rel.html),
 [VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh),
+[PyTorch의 JetPack 6.2 패키지 안내](https://docs.pytorch.org/TensorRT/v2.9.0/getting_started/jetpack.html),
 [브라우저 카메라 보안 문맥](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).

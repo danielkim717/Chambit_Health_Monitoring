@@ -1,11 +1,14 @@
 """Deployment checks; synthetic input only checks execution, never accuracy."""
 import argparse
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 import sys
+import struct
 import time
 from urllib.request import urlopen
+from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -66,17 +69,51 @@ def server_check(base, wait):
             time.sleep(2)
 
 
+async def websocket_check(base):
+    """Exercise proxy/session/cancel with a no-face packet, not a measurement."""
+    import websockets
+    parts = urlsplit(base)
+    if parts.scheme not in ('http', 'https'):
+        raise ValueError('Expected an HTTP(S) base URL')
+    address = urlunsplit(('wss' if parts.scheme == 'https' else 'ws', parts.netloc,
+                         '/api/measurement', '', ''))
+    origin = urlunsplit((parts.scheme, parts.netloc, '', '', ''))
+    async with websockets.connect(address, origin=origin, open_timeout=5, close_timeout=5) as ws:
+        connected = json.loads(await asyncio.wait_for(ws.recv(), 5))
+        if connected.get('type') != 'connected' or connected.get('protocol') != 1:
+            raise RuntimeError('Measurement connection unavailable: ' + json.dumps(connected, ensure_ascii=False))
+        started_at = time.monotonic() * 1000
+        await ws.send(json.dumps({'type': 'start', 't': started_at}))
+        started = json.loads(await asyncio.wait_for(ws.recv(), 5))
+        if started.get('type') != 'started':
+            raise RuntimeError('Measurement session unavailable: ' + json.dumps(started, ensure_ascii=False))
+        header = json.dumps({'sessionId': started['sessionId'], 'revision': started['revision'],
+                             'seq': 0, 't': started_at, 'rgb': None, 'scene': {}}).encode()
+        await ws.send(struct.pack('<I', len(header)) + header)
+        state = json.loads(await asyncio.wait_for(ws.recv(), 5))
+        if state.get('type') != 'state' or state.get('sessionId') != started['sessionId']:
+            raise RuntimeError('Invalid frame state response: ' + json.dumps(state, ensure_ascii=False))
+        await ws.send(json.dumps({'type': 'cancel'}))
+        await asyncio.wait_for(ws.wait_closed(), 5)
+    print('WebSocket start / no-face packet / cancel OK. No camera or physiological result generated.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--local', action='store_true')
     mode.add_argument('--url', help='Web proxy URL, e.g. http://127.0.0.1:5500')
     parser.add_argument('--wait', type=float, default=0)
+    parser.add_argument('--websocket', action='store_true', help='Check an idle measurement session and cancel it')
     args = parser.parse_args()
+    if args.websocket and not args.url:
+        parser.error('--websocket requires --url')
     if args.local:
         local_check()
     else:
         server_check(args.url, args.wait)
+        if args.websocket:
+            asyncio.run(websocket_check(args.url))
 
 
 if __name__ == '__main__':
