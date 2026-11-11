@@ -229,6 +229,10 @@ CSV 열: `participant,attempt,condition,reference_hr,hr,reference_rr,rr`.
 
 ## 젯슨 이식 준비
 
+[젯슨 원격 개발·서버 배포 절차](docs/JETSON_DEPLOYMENT.md)에 접속 확인, GPU 환경 선택,
+노트북 카메라용 SSH 터널과 서버 자동 시작 방법을 정리했습니다.
+`deploy/jetson/`의 검사·설치 도구는 준비 단계이며 젯슨 실기기 검증 완료를 뜻하지 않습니다.
+
 ```powershell
 # 저장소 루트; 선택 설치
 .\.venv\Scripts\python.exe -m pip install -r inference/requirements-export.txt
